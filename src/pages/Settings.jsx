@@ -27,8 +27,8 @@ export default function Settings() {
       <div className="card glass-panel" style={{ marginBottom: '20px' }}>
         <h3 className="card-title">Batas Aman pH</h3>
         
-        <div style={{ display: 'flex', gap: '16px' }}>
-          <div className="input-group" style={{ flex: 1 }}>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <div className="input-group" style={{ flex: 1, minWidth: 0 }}>
             <label className="input-label">Minimum</label>
             <input 
               type="number" 
@@ -39,7 +39,7 @@ export default function Settings() {
               step="0.1"
             />
           </div>
-          <div className="input-group" style={{ flex: 1 }}>
+          <div className="input-group" style={{ flex: 1, minWidth: 0 }}>
             <label className="input-label">Maksimum</label>
             <input 
               type="number" 
