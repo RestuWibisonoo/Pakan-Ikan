@@ -40,8 +40,26 @@ app.use(
 // Body Parser dengan batasan ukuran aman
 app.use(express.json({ limit: '100kb' }));
 
+// Root Gateway Info (Respon resmi saat membuka https://api.pakan-ikan.my.id/)
+app.get(['/', '/api'], (req, res) => {
+  res.status(200).json({
+    success: true,
+    service: 'Pakan Ikan IoT & REST API Gateway',
+    version: '1.0.0',
+    status: 'online',
+    documentation: 'https://pakan-ikan.my.id',
+    endpoints: {
+      health: '/health',
+      deviceSync: '/api/v1/device/sync',
+      deviceTelemetry: '/api/v1/device/telemetry',
+      deviceCommands: '/api/v1/device/commands/pending',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Health Check Endpoint (Membedakan secara jujur antara Readiness konfigurasi dan Live Connectivity)
-app.get('/api/health', async (req, res) => {
+app.get(['/health', '/api/health'], async (req, res) => {
   const isProd = config.nodeEnv === 'production';
   const hasCreds = hasAdminCredentials();
   const dbReady = hasDatabaseAccess();
