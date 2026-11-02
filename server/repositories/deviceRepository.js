@@ -97,6 +97,23 @@ class DeviceRepository {
   }
 
   /**
+   * Menangani kegagalan operasi Firebase Realtime Database.
+   * Di lingkungan produksi, kegagalan RTDB langsung melempar error 502 (DATABASE_ERROR)
+   * untuk mencegah silent fallback ke mock in-memory yang dapat menyesatkan.
+   */
+  handleDatabaseError(actionName, err) {
+    console.warn(`[DeviceRepository] Gagal ${actionName} RTDB (${err.message}).`);
+    if (config.nodeEnv === 'production' || process.env.NODE_ENV === 'production') {
+      const error = new Error(
+        `Gagal berkomunikasi dengan Firebase Realtime Database saat ${actionName}: ${err.message}`
+      );
+      error.status = 502;
+      error.code = 'DATABASE_ERROR';
+      throw error;
+    }
+  }
+
+  /**
    * Mengambil UID pemilik perangkat
    */
   async getDeviceOwner(deviceId) {
@@ -113,7 +130,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca owner_uid RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca owner_uid', err);
       }
     }
 
@@ -135,7 +152,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/meta/owner_uid`).set(ownerUid);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan owner_uid RTDB (${err.message}).`);
+        this.handleDatabaseError('menyimpan owner_uid', err);
       }
     }
 
@@ -162,7 +179,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca device_key RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca device_key', err);
       }
     }
 
@@ -184,7 +201,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/meta/device_key`).set(secretKey);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan device_key RTDB (${err.message}).`);
+        this.handleDatabaseError('menyimpan device_key', err);
       }
     }
 
@@ -211,7 +228,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca RTDB (${err.message}), beralih ke cache lokal.`);
+        this.handleDatabaseError('membaca status', err);
       }
     }
 
@@ -237,7 +254,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/status`).update(updated);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal update RTDB (${err.message}), simpan ke cache lokal.`);
+        this.handleDatabaseError('update status', err);
       }
     }
 
@@ -263,7 +280,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca settings RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca settings', err);
       }
     }
 
@@ -285,7 +302,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/settings`).update(newSettings);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan settings RTDB (${err.message}).`);
+        this.handleDatabaseError('menyimpan settings', err);
       }
     }
 
@@ -313,7 +330,7 @@ class DeviceRepository {
           return [];
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca jadwal RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca jadwal', err);
       }
     }
 
@@ -341,7 +358,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/schedules/${scheduleId}`).set(scheduleData);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan jadwal RTDB (${err.message}).`);
+        this.handleDatabaseError('menyimpan jadwal', err);
       }
     }
 
@@ -365,7 +382,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/schedules/${scheduleId}`).remove();
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menghapus jadwal RTDB (${err.message}).`);
+        this.handleDatabaseError('menghapus jadwal', err);
       }
     }
 
@@ -398,7 +415,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/commands/queue/${cmdId}`).set(commandData);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan command queue RTDB (${err.message}).`);
+        this.handleDatabaseError('menyimpan command queue', err);
       }
     }
 
@@ -459,7 +476,7 @@ class DeviceRepository {
           return null;
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca command queue RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca command queue', err);
       }
     }
 
@@ -518,7 +535,7 @@ class DeviceRepository {
             await db.ref(`devices/${id}/commands/queue/${commandId}`).update(interimData);
           }
         } catch (err) {
-          console.warn(`[DeviceRepository] Gagal update interim command RTDB (${err.message}).`);
+          this.handleDatabaseError('update interim command', err);
         }
       }
 
@@ -548,7 +565,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/commands/history/${commandId}`).set(resultData);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal update command result RTDB (${err.message}).`);
+        this.handleDatabaseError('update command result', err);
       }
     }
 
@@ -595,7 +612,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal sinkronisasi status action_log RTDB (${err.message}).`);
+        this.handleDatabaseError('sinkronisasi status action_log', err);
       }
     }
 
@@ -630,7 +647,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/logs/ph_logs/${logId}`).set(data);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal simpan log pH RTDB (${err.message}).`);
+        this.handleDatabaseError('simpan log pH', err);
       }
     }
 
@@ -663,7 +680,7 @@ class DeviceRepository {
           return [];
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca log pH RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca log pH', err);
       }
     }
 
@@ -694,7 +711,7 @@ class DeviceRepository {
           await db.ref(`devices/${id}/logs/action_logs/${logId}`).set(data);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal simpan log aksi RTDB (${err.message}).`);
+        this.handleDatabaseError('simpan log aksi', err);
       }
     }
 
@@ -727,7 +744,7 @@ class DeviceRepository {
           return [];
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca log aksi RTDB (${err.message}).`);
+        this.handleDatabaseError('membaca log aksi', err);
       }
     }
 

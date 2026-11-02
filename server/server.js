@@ -5,7 +5,7 @@ import config from './config/appConfig.js';
 import authRoutes from './routes/authRoutes.js';
 import iotRoutes from './routes/iotRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { hasAdminCredentials, hasDatabaseAccess } from './config/firebaseAdmin.js';
+import { hasAdminCredentials, hasDatabaseAccess, checkRealtimeDatabaseConnectivity } from './config/firebaseAdmin.js';
 import { isSmtpConfigured } from './config/smtp.js';
 
 const app = express();
@@ -32,20 +32,43 @@ app.use(
 app.use(express.json({ limit: '100kb' }));
 
 // Health Check Endpoint (Membedakan secara jujur antara Readiness konfigurasi dan Live Connectivity)
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   const isProd = config.nodeEnv === 'production';
   const hasCreds = hasAdminCredentials();
   const dbReady = hasDatabaseAccess();
   const smtpReady = isSmtpConfigured();
   const deviceAuthReady = Boolean(config.device.apiKey && config.device.apiKey.trim().length > 0);
 
-  // Status sistem: 'degraded' di production jika kredensial wajib belum terkonfigurasi
-  const systemStatus = isProd && (!hasCreds || !dbReady || !deviceAuthReady) ? 'degraded' : 'ok';
+  let liveDbStatus = {
+    configured: dbReady,
+    connected: false,
+    latencyMs: null,
+    status: dbReady ? 'checking' : 'unconfigured',
+    message: dbReady ? 'Memeriksa koneksi...' : 'Service account atau database URL belum dikonfigurasi.',
+  };
+
+  if (dbReady) {
+    try {
+      liveDbStatus = await checkRealtimeDatabaseConnectivity(2000);
+    } catch (err) {
+      liveDbStatus = {
+        configured: true,
+        connected: false,
+        latencyMs: null,
+        status: 'error',
+        message: err.message,
+      };
+    }
+  }
+
+  // Status sistem: 'degraded' di production jika kredensial wajib belum terkonfigurasi atau RTDB tidak terhubung
+  const isDegradedInProd = isProd && (!hasCreds || !dbReady || !deviceAuthReady || !liveDbStatus.connected);
+  const systemStatus = isDegradedInProd ? 'degraded' : 'ok';
 
   const services = {
     firebaseAdmin: hasCreds ? 'ready' : 'credentials-needed',
     realtimeDatabase: dbReady
-      ? (isProd ? 'ready' : 'ready-dev')
+      ? (liveDbStatus.connected ? 'connected' : (isProd ? 'disconnected' : 'ready-dev'))
       : (isProd ? 'unavailable' : 'mock-fallback'),
     smtp: smtpReady ? 'configured' : (isProd ? 'unconfigured' : 'mock-mode'),
     deviceAuth: deviceAuthReady ? 'configured' : 'unconfigured',
@@ -58,9 +81,14 @@ app.get('/api/health', (req, res) => {
     projectId: config.firebase.projectId,
     environment: config.nodeEnv,
     services,
-    readiness: services,
+    readiness: {
+      firebaseAdmin: hasCreds,
+      realtimeDatabase: dbReady,
+      smtp: smtpReady,
+      deviceAuth: deviceAuthReady,
+    },
     liveConnectivity: {
-      realtimeDatabase: dbReady ? 'ready-for-queries' : 'not-connected',
+      realtimeDatabase: liveDbStatus,
     },
     timestamp: new Date().toISOString(),
   });

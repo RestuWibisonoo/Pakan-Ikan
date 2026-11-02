@@ -92,5 +92,75 @@ export const getAdminDatabase = () => {
 export const hasAdminCredentials = () => hasServiceAccount;
 export const hasDatabaseAccess = () => hasServiceAccount && Boolean(config.firebase.databaseUrl);
 
+/**
+ * Memeriksa konektivitas live ke Firebase Realtime Database secara read-only.
+ * Menggunakan path metadata sistem '.info/connected' dengan batas waktu (timeout).
+ * Fungsi ini membedakan secara jujur antara 'konfigurasi siap' dan 'koneksi aktif terverifikasi'.
+ *
+ * @param {number} timeoutMs Batas waktu pengecekan dalam milidetik (default 2500ms)
+ * @returns {Promise<{ configured: boolean, connected: boolean, latencyMs: number|null, status: string, message: string }>}
+ */
+export async function checkRealtimeDatabaseConnectivity(timeoutMs = 2500) {
+  if (!hasDatabaseAccess()) {
+    return {
+      configured: false,
+      connected: false,
+      latencyMs: null,
+      status: 'unconfigured',
+      message: 'Kredensial Firebase Service Account atau Database URL belum terkonfigurasi.',
+    };
+  }
+
+  const db = getAdminDatabase();
+  if (!db) {
+    return {
+      configured: true,
+      connected: false,
+      latencyMs: null,
+      status: 'unavailable',
+      message: 'Objek Firebase Realtime Database tidak dapat diinisialisasi.',
+    };
+  }
+
+  const startTime = Date.now();
+  try {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        const timeoutErr = new Error(`Koneksi RTDB melebihi batas waktu ${timeoutMs}ms.`);
+        timeoutErr.code = 'TIMEOUT';
+        reject(timeoutErr);
+      }, timeoutMs);
+    });
+
+    const checkPromise = db.ref('.info/connected').once('value');
+    const snapshot = await Promise.race([checkPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
+
+    const latencyMs = Date.now() - startTime;
+    const isConnected = Boolean(snapshot && snapshot.val() === true);
+
+    return {
+      configured: true,
+      connected: isConnected,
+      latencyMs,
+      status: isConnected ? 'connected' : 'disconnected',
+      message: isConnected
+        ? 'Terhubung dengan Firebase Realtime Database.'
+        : 'Socket RTDB aktif namun status koneksi live bernilai false.',
+    };
+  } catch (err) {
+    const latencyMs = Date.now() - startTime;
+    const isTimeout = err.code === 'TIMEOUT' || err.message.includes('timeout');
+    return {
+      configured: true,
+      connected: false,
+      latencyMs,
+      status: isTimeout ? 'timeout' : 'unreachable',
+      message: `Pemeriksaan konektivitas RTDB gagal: ${err.message}`,
+    };
+  }
+}
+
 export default admin;
 

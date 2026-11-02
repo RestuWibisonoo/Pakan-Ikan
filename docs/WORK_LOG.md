@@ -158,5 +158,33 @@ Dokumen ini merupakan catatan riwayat pengembangan terpusat (*central developmen
 - **Pekerjaan Tersisa (*Remaining Work*):** Eksekusi runbook di server VM `192.168.1.115` via SSH.
 - **Laporan Detail:** [06-security-authentication-deployment-finalization.md](./reports/06-security-authentication-deployment-finalization.md)
 
+---
+
+### [Tugas 07] Final Pre-Deployment Gate & Deployment Authorization
+- **Tanggal:** 2026-11-02
+- **Objektif:** Melakukan audit verifikasi gerbang akhir (*final gate*) pra-deployment, mengimplementasikan pengecekan read-only Firebase Realtime Database (RTDB) yang transparan, menegakkan penolakan silent mock fallback di lingkungan produksi, memvalidasi seluruh test suite otomatis dan virtual ESP32 simulator, serta menyusun prasyarat manual deployment operator pada VM Ubuntu `192.168.1.115`.
+- **Status Implementasi:** READY WITH DOCUMENTED MANUAL REQUIREMENTS
+- **Keputusan & Fitur Utama:**
+  - **Pemeriksaan RTDB Read-Only Non-Destruktif:** Mengimplementasikan `checkRealtimeDatabaseConnectivity(timeoutMs)` menggunakan path sistem metadata `.info/connected` dengan batas waktu terproteksi (`Promise.race`) agar endpoint health check tidak hang.
+  - **Kejujuran Health Check:** Endpoint `/api/health` secara transparan memisahkan status kesiapan konfigurasi (`readiness`) dari status konektivitas live aktual (`liveConnectivity`), tanpa klaim koneksi palsu jika belum terverifikasi secara jaringan.
+  - **Pencegahan Silent Mock Fallback di Produksi:** Metode `handleDatabaseError()` pada `deviceRepository.js` langsung melempar HTTP 502 `DATABASE_ERROR` di lingkungan produksi jika query RTDB gagal. Mock in-memory dilarang beroperasi di produksi.
+  - **Pemisahan Tingkat Verifikasi:** Memisahkan secara tegas pengujian lokal berbasis mock/simulasi yang telah lulus 100% dari pengujian live fisik di kolam yang membutuhkan kredensial rahasia produksi di VM.
+  - **Penetapan Status Final Gate:** Task 07 secara resmi menjadi gerbang akhir (*final gate*) pra-deployment; seluruh persyaratan perangkat lunak dinyatakan lengkap dan siap dideploy secara manual oleh operator server.
+- **Berkas Utama:**
+  - `server/config/firebaseAdmin.js`
+  - `server/server.js`
+  - `server/repositories/deviceRepository.js`
+  - `server/tests/preDeploymentGate.test.js`
+  - `docs/reports/07-final-pre-deployment-verification.md`
+- **Pengujian & Hasil:**
+  - `npm test` di `server/`: 60/60 tes lulus 100% (durasi ~352ms).
+  - `npm run lint`: 0 errors, 0 warnings.
+  - `npm run build`: Sukses (224ms), `dist/` siap saji.
+  - ESP32 Virtual Device Simulator: Seluruh mode (`once`, `unauthorized`, `invalid-payload`, dan penolakan 503 tanpa kunci) tervalidasi sukses.
+- **Isu Diketahui (*Known Issues*):** Kredensial rahasia produksi (`serviceAccountKey.json`, `SMTP_PASS`, `DEVICE_API_KEY`) sengaja tidak di-commit ke repositori Git demi kepatuhan keamanan dan harus dipasang langsung oleh operator pada VM.
+- **Pekerjaan Tersisa (*Remaining Work*):** Eksekusi langkah-langkah manual operator di VM `192.168.1.115` via SSH sesuai panduan di `docs/reports/07-final-pre-deployment-verification.md`.
+- **Laporan Detail:** [07-final-pre-deployment-verification.md](./reports/07-final-pre-deployment-verification.md)
+
+
 
 
