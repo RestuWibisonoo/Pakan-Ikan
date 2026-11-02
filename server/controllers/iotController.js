@@ -10,13 +10,42 @@ import {
   validateCommandResult,
 } from '../validators/iotValidator.js';
 
-function getDeviceId(req) {
-  return (
+export async function getVerifiedDeviceId(req) {
+  const requestedDeviceId =
     req.device?.id ||
     req.query?.deviceId ||
     req.headers['x-device-id'] ||
-    config.device.defaultDeviceId
-  );
+    config.device.defaultDeviceId;
+
+  // Jika request berasal dari ESP32 (sudah diautentikasi lewat requireDeviceAuth)
+  if (req.device) {
+    return requestedDeviceId;
+  }
+
+  // Jika request berasal dari pengguna (Firebase Auth)
+  const userUid = req.user?.uid;
+  if (!userUid) {
+    const err = new Error('Autentikasi pengguna tidak valid.');
+    err.status = 401;
+    throw err;
+  }
+
+  // Verifikasi kepemilikan perangkat untuk mencegah serangan IDOR / BOLA
+  const ownerUid = await deviceRepository.getDeviceOwner(requestedDeviceId);
+  if (!ownerUid) {
+    // Klaim otomatis untuk perangkat pertama yang dihubungkan pengguna
+    await deviceRepository.setDeviceOwner(requestedDeviceId, userUid);
+    return requestedDeviceId;
+  }
+
+  if (ownerUid !== userUid) {
+    const err = new Error('Akses ditolak: Anda tidak memiliki hak akses terhadap perangkat kolam ini.');
+    err.status = 403;
+    err.code = 'DEVICE_ACCESS_DENIED';
+    throw err;
+  }
+
+  return requestedDeviceId;
 }
 
 // ==============================================================================
@@ -25,7 +54,7 @@ function getDeviceId(req) {
 
 export async function getStatus(req, res, next) {
   try {
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const data = await iotService.getFullSystemStatus(deviceId);
     return res.status(200).json({ success: true, data });
   } catch (err) {
@@ -40,7 +69,7 @@ export async function triggerFeed(req, res, next) {
       return res.status(400).json({ success: false, error: validation.error });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const command = await iotService.triggerFeedCommand(deviceId, {
       duration_ms: req.body?.duration_ms,
       source: 'manual',
@@ -64,7 +93,7 @@ export async function triggerPump(req, res, next) {
       return res.status(400).json({ success: false, error: validation.error });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const command = await iotService.triggerPumpCommand(deviceId, {
       state: req.body.state,
       userEmail: req.user?.email,
@@ -82,7 +111,7 @@ export async function triggerPump(req, res, next) {
 
 export async function getSchedules(req, res, next) {
   try {
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const schedules = await deviceRepository.getSchedules(deviceId);
     return res.status(200).json({ success: true, data: schedules });
   } catch (err) {
@@ -97,7 +126,7 @@ export async function createSchedule(req, res, next) {
       return res.status(400).json({ success: false, error: validation.error });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const newSchedule = await deviceRepository.saveSchedule(deviceId, {
       time: req.body.time,
       label: req.body.label || 'Pakan',
@@ -126,7 +155,7 @@ export async function updateSchedule(req, res, next) {
       return res.status(400).json({ success: false, error: validation.error });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const updated = await deviceRepository.saveSchedule(deviceId, {
       id,
       time: req.body.time,
@@ -151,7 +180,7 @@ export async function deleteSchedule(req, res, next) {
       return res.status(400).json({ success: false, error: 'ID jadwal wajib disertakan.' });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     await deviceRepository.deleteSchedule(deviceId, id);
 
     return res.status(200).json({
@@ -165,7 +194,7 @@ export async function deleteSchedule(req, res, next) {
 
 export async function getSettings(req, res, next) {
   try {
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const settings = await deviceRepository.getSettings(deviceId);
     return res.status(200).json({ success: true, data: settings });
   } catch (err) {
@@ -180,7 +209,7 @@ export async function updateSettings(req, res, next) {
       return res.status(400).json({ success: false, error: validation.error });
     }
 
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const updated = await deviceRepository.updateSettings(deviceId, req.body);
 
     return res.status(200).json({
@@ -195,7 +224,7 @@ export async function updateSettings(req, res, next) {
 
 export async function getPhLogs(req, res, next) {
   try {
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const limit = parseInt(req.query.limit, 10) || 50;
     const logs = await deviceRepository.getPhLogs(deviceId, limit);
     return res.status(200).json({ success: true, data: logs });
@@ -206,7 +235,7 @@ export async function getPhLogs(req, res, next) {
 
 export async function getActionLogs(req, res, next) {
   try {
-    const deviceId = getDeviceId(req);
+    const deviceId = await getVerifiedDeviceId(req);
     const limit = parseInt(req.query.limit, 10) || 50;
     const logs = await deviceRepository.getActionLogs(deviceId, limit);
     return res.status(200).json({ success: true, data: logs });

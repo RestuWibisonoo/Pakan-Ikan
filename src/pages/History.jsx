@@ -1,32 +1,25 @@
 import { useState, useEffect } from 'react';
-import { Activity, Droplets, Power } from 'lucide-react';
+import { Activity, Droplets, Power, Loader2 } from 'lucide-react';
 import iotApi from '../services/iotApi';
 
 export default function History() {
   const [tab, setTab] = useState('ph'); // 'ph' or 'action'
-
-  const [phLogs, setPhLogs] = useState([
-    { id: '1', time: '14:00', value: 7.2, status: 'aman' },
-    { id: '2', time: '13:00', value: 7.1, status: 'aman' },
-    { id: '3', time: '12:00', value: 6.9, status: 'aman' },
-    { id: '4', time: '11:00', value: 6.4, status: 'asam' },
-  ]);
-
-  const [actionLogs, setActionLogs] = useState([
-    { id: '1', time: '14:01', type: 'pump', action: 'Manual ON', status: 'success' },
-    { id: '2', time: '07:00', type: 'feed', action: 'Auto Feed', status: 'success' },
-    { id: '3', time: '17:00', type: 'feed', action: 'Auto Feed', status: 'failed' },
-  ]);
+  const [phLogs, setPhLogs] = useState([]);
+  const [actionLogs, setActionLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
-    // Ambil log pH
-    iotApi
-      .getPhLogs(25)
-      .then((res) => {
-        if (isMounted && res?.data && Array.isArray(res.data) && res.data.length > 0) {
-          const formatted = res.data.map((item) => ({
+    Promise.all([
+      iotApi.getPhLogs(30).catch(() => ({ data: [] })),
+      iotApi.getActionLogs(30).catch(() => ({ data: [] })),
+    ])
+      .then(([phRes, actionRes]) => {
+        if (!isMounted) return;
+
+        if (phRes?.data && Array.isArray(phRes.data)) {
+          const formattedPh = phRes.data.map((item) => ({
             id: item.id,
             time: item.timestamp
               ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
@@ -39,17 +32,11 @@ export default function History() {
             value: item.value,
             status: item.status,
           }));
-          setPhLogs(formatted);
+          setPhLogs(formattedPh);
         }
-      })
-      .catch(() => {});
 
-    // Ambil log aksi
-    iotApi
-      .getActionLogs(25)
-      .then((res) => {
-        if (isMounted && res?.data && Array.isArray(res.data) && res.data.length > 0) {
-          const formatted = res.data.map((item) => ({
+        if (actionRes?.data && Array.isArray(actionRes.data)) {
+          const formattedAction = actionRes.data.map((item) => ({
             id: item.id,
             time: item.timestamp
               ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
@@ -63,10 +50,12 @@ export default function History() {
             action: item.action,
             status: item.status,
           }));
-          setActionLogs(formatted);
+          setActionLogs(formattedAction);
         }
       })
-      .catch(() => {});
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
 
     return () => {
       isMounted = false;
@@ -95,24 +84,41 @@ export default function History() {
       </div>
 
       <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-        {tab === 'ph' &&
-          phLogs.map((log) => (
-            <div key={log.id} className="list-item">
-              <div>
-                <div style={{ fontSize: '1rem', fontWeight: 600 }}>pH {log.value}</div>
-                <div className="item-subtitle">{log.time}</div>
+        {loading ? (
+          <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Loader2
+              size={24}
+              color="var(--primary)"
+              style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px' }}
+            />
+            <div>Memuat data riwayat...</div>
+          </div>
+        ) : tab === 'ph' ? (
+          phLogs.length > 0 ? (
+            phLogs.map((log) => (
+              <div key={log.id} className="list-item">
+                <div>
+                  <div style={{ fontSize: '1rem', fontWeight: 600 }}>pH {log.value}</div>
+                  <div className="item-subtitle">{log.time}</div>
+                </div>
+                {log.status === 'aman' ? (
+                  <span className="badge badge-success">Aman</span>
+                ) : log.status === 'asam' ? (
+                  <span className="badge badge-warning">Asam</span>
+                ) : (
+                  <span className="badge badge-danger">Basa</span>
+                )}
               </div>
-              {log.status === 'aman' ? (
-                <span className="badge badge-success">Aman</span>
-              ) : log.status === 'asam' ? (
-                <span className="badge badge-warning">Asam</span>
-              ) : (
-                <span className="badge badge-danger">Basa</span>
-              )}
+            ))
+          ) : (
+            <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <p style={{ margin: '0 0 6px 0', fontWeight: 600 }}>Belum ada riwayat pembacaan pH</p>
+              <p style={{ margin: 0, fontSize: '0.8rem' }}>
+                Data pH akan otomatis tercatat saat sensor ESP32 mengirim telemetri.
+              </p>
             </div>
-          ))}
-
-        {tab === 'action' &&
+          )
+        ) : actionLogs.length > 0 ? (
           actionLogs.map((log) => (
             <div key={log.id} className="list-item">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -132,13 +138,25 @@ export default function History() {
                 <span className="badge badge-success" style={{ fontSize: '0.75rem' }}>
                   Berhasil
                 </span>
+              ) : log.status === 'pending' ? (
+                <span className="badge badge-warning" style={{ fontSize: '0.75rem' }}>
+                  Menunggu
+                </span>
               ) : (
                 <span className="badge badge-danger" style={{ fontSize: '0.75rem' }}>
                   Gagal
                 </span>
               )}
             </div>
-          ))}
+          ))
+        ) : (
+          <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '0 0 6px 0', fontWeight: 600 }}>Belum ada riwayat aksi</p>
+            <p style={{ margin: 0, fontSize: '0.8rem' }}>
+              Aksi manual pemberian pakan dan pompa air akan dicatat di sini.
+            </p>
+          </div>
+        )}
       </div>
     </>
   );

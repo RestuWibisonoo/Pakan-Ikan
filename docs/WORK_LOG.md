@@ -62,18 +62,34 @@ Dokumen ini merupakan catatan riwayat pengembangan terpusat (*central developmen
 
 ---
 
-### [Tugas 04] Audit Menyeluruh Integrasi, Keamanan, dan Keandalan
+### [Tugas 04] Audit Menyeluruh, Remediasi Keamanan & Persiapan Single-VM Deployment
 - **Tanggal:** 2026-11-02
-- **Objektif:** Menjalankan audit sistem secara menyeluruh dari frontend, backend, Firebase Auth, Realtime Database, hingga integrasi hardware ESP32 sebelum implementasi fitur baru atau uji fisik.
+- **Objektif:** Menjalankan audit sistem secara menyeluruh dari frontend, backend, Firebase Auth, Realtime Database, hingga integrasi hardware ESP32; melakukan perbaikan celah keamanan/keandalan; menyelaraskan single-origin API routing; menyediakan simulator virtual ESP32; dan mempersiapkan konfigurasi deployment Single-VM di balik Nginx (`pakan-ikan.my.id`).
 - **Status Implementasi:** Completed
-- **Temuan Utama:**
-  - 10 temuan teridentifikasi: 2 Critical (IDOR kepemilikan perangkat & silent mock fallback di production), 3 High (tanpa rate limiting di rute IoT, log aksi sukses prematur, dan penimpaan pending command), 3 Medium (frontend mock masking pada empty state, tanpa deteksi timeout offline, dan pertumbuhan log tanpa batas), 2 Low (shared device secret & bundle size).
+- **Remediasi & Fitur Utama:**
+  - **Pencegahan BOLA/IDOR (CRIT-01):** Validasi kepemilikan perangkat di `server/controllers/iotController.js` dan `deviceRepository.js` dengan HTTP 403 `DEVICE_ACCESS_DENIED`.
+  - **Production Mock Guard (CRIT-02):** Menolak silent fallback di mode `production` dengan HTTP 503 `DATABASE_UNAVAILABLE` saat live RTDB offline.
+  - **IoT Rate Limiting (HIGH-01):** Perlindungan aktuator servo/pompa (10 req/min) dan telemetri ESP32 (120 req/min) di `server/middleware/rateLimiter.js`.
+  - **Two-Phase Action Log (HIGH-02):** Status log diawali `'pending'` dan baru diperbarui ke `'success'`/`'failed'` setelah konfirmasi eksekusi ESP32.
+  - **FIFO Command Queue (HIGH-03):** Antrean perintah FIFO di node `commands/queue/{cmdId}` mencegah penimpaan perintah.
+  - **Single-Origin Routing:** Standarisasi API base URL relatif pada frontend `src/services/authApi.js` dan `iotApi.js` untuk reverse proxy Nginx.
+  - **Loopback Binding:** Backend diikat ke `127.0.0.1:5000` via `HOST=127.0.0.1`.
+  - **Nginx Reverse Proxy:** Dibuat `deploy/nginx/pakan-ikan.conf` untuk Cloudflare Tunnel port 80 dan SPA fallback.
+  - **Systemd Service:** Dibuat `deploy/systemd/pakan-ikan-api.service` dengan auto-restart dan sandbox hardening.
+  - **ESP32 Simulator:** Dibuat `tools/device-simulator/simulator.js` dengan multi-mode uji (`loop`, `once`, `unauthorized`, `invalid-payload`, `offline`).
 - **Berkas Utama:**
+  - `deploy/nginx/pakan-ikan.conf`
+  - `deploy/systemd/pakan-ikan-api.service`
+  - `tools/device-simulator/simulator.js` & `README.md`
+  - `docs/deployment/single-vm-architecture.md`
   - `docs/reports/04-integration-security-reliability-audit.md`
+  - `server/tests/simulatorIntegration.test.js`
 - **Pengujian & Hasil:**
-  - `npm test` di `server/`: 43/43 tes lulus 100%.
+  - `npm test` di `server/`: 51/51 tes lulus 100% (durasi ~200ms).
+  - ESP32 Simulator CLI: Mode `once`, `unauthorized`, dan `invalid-payload` terverifikasi lulus.
   - `npm run lint`: 0 errors, 0 warnings.
-  - `npm run build`: Sukses (204ms).
-- **Pekerjaan Tersisa (*Remaining Work*):** Melakukan eksekusi perbaikan bertahap sesuai prioritas P0 (CRITICAL) hingga P3 (LOW) yang telah dirumuskan.
+  - `npm run build`: Sukses (210ms), aset `dist/` terbentuk.
+- **Isu Diketahui (*Known Issues*):** Pengujian fisik dengan mikrokontroler ESP32 riil dan sensor pH analog dijadwalkan pada pengujian hardware di kolam.
+- **Pekerjaan Tersisa (*Remaining Work*):** Pemasangan service account key di VM saat proses deployment server fisik/cloud.
 - **Laporan Detail:** [04-integration-security-reliability-audit.md](./reports/04-integration-security-reliability-audit.md)
 

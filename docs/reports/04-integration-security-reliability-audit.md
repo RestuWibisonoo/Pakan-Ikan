@@ -1,259 +1,133 @@
-# Laporan Tugas 04: Audit Menyeluruh Integrasi, Keamanan, dan Keandalan (Full Integration, Security & Reliability Audit)
+# Laporan Tugas 04: Audit Menyeluruh, Remediasi Keamanan & Persiapan Single-VM Deployment
 
-## A. Informasi Audit
+## A. Informasi Tugas
 - **Nomor Tugas:** 04
-- **Judul Tugas:** Audit Menyeluruh Integrasi, Keamanan, dan Keandalan Sistem Pakan Ikan
+- **Judul Tugas:** Audit Menyeluruh Integrasi, Keamanan, Keandalan, dan Persiapan Deployment Single-VM
 - **Tanggal Eksekusi:** 2026-11-02
-- **Cakupan:** Seluruh repositori (React Frontend, Express Backend, Firebase Authentication, Firebase Realtime Database, dan integrasi ESP32).
-- **Objektif:** Mengidentifikasi secara objektif celah keamanan, inkonsistensi data, kelemahan arsitektur, dan ketidaksesuaian antara dokumentasi dan kode nyata sebelum implementasi fitur baru atau pengujian perangkat fisik.
+- **Cakupan:** Seluruh repositori (React 19 Frontend, Express Backend, Firebase Authentication, Firebase Realtime Database, integrasi ESP32, konfigurasi Nginx reverse proxy, dan unit systemd).
+- **Objektif:**
+  1. Menyelidiki seluruh kode repositori, mengidentifikasi celah keamanan, inkonsistensi data, dan kelemahan arsitektur.
+  2. Mengimplementasikan remediasi tuntas terhadap seluruh temuan kritis dan prioritas tinggi.
+  3. Menstandarkan routing API single-origin untuk deployment Single-VM di balik Nginx (`pakan-ikan.my.id`).
+  4. Menyediakan konfigurasi Nginx reverse proxy (`deploy/nginx/pakan-ikan.conf`) dan service systemd (`deploy/systemd/pakan-ikan-api.service`).
+  5. Membangun simulator perangkat keras virtual ESP32 (`tools/device-simulator/`) untuk pengujian otomatis end-to-end tanpa memerlukan mikrokontroler fisik.
 
 ---
 
-## B. Kondisi Awal Repositori & Cakupan Audit
-- **Frontend:** React 19 + Vite 8 (`src/pages/*`, `src/contexts/*`, `src/services/*`).
-- **Backend:** Node.js Express (`server/*`).
-- **Autentikasi:** Firebase Authentication (User) & Shared Key Header (ESP32).
-- **Database:** Firebase Realtime Database (Project ID: `pakan-ikan-4c18e`).
-- **Dokumentasi yang Ditinjau:** `docs/WORK_LOG.md`, `docs/reports/01-custom-email-auth.md`, `docs/reports/02-iot-backend-integration.md`, `docs/reports/03-iot-database-architecture.md`, `design.md`.
+## B. Kondisi Awal Repositori Sebelum Remediasi
+- **Frontend:** React 19 + Vite 8 menggunakan `VITE_AUTH_API_URL` dan `VITE_IOT_API_URL` terpisah yang mengarah ke port absolut (`http://localhost:5000`), menyebabkan potensi isu CORS dan kompleksitas port di lingkungan produksi.
+- **Backend:** Node.js Express mendengarkan semua antarmuka jaringan tanpa pembatasan loopback, rute IoT tanpa rate limiter, dan tanpa verifikasi kepemilikan perangkat.
+- **Database:** Menggunakan mock in-memory fallback secara diam-diam (*silent fallback*) bahkan jika dijalankan di mode production tanpa credentials. Perintah pakan dan pompa tersimpan di satu node objek (`commands/pending`) yang rawan tertimpa (*race condition*).
+- **Status Hardware:** Tidak ada ESP32 fisik yang terhubung; status header di frontend di-hardcode "Online" dan data tiruan menutupi state kosong saat database belum terisi.
 
 ---
 
-## C. Matriks Keterlacakan (Traceability Matrix)
+## C. Matriks Keterlacakan & Remediasi Masalah
 
-| Komponen / Fitur | Rujukan Dokumentasi | Berkas Implementasi Aktual | Status Uji Otomatis | Status Audit & Keterlacakan |
+| ID Temuan | Kategori | Masalah yang Teridentifikasi | Status Remediasi | Implementasi & File yang Diubah |
 |---|---|---|---|---|
-| **Custom Email Auth** | `docs/reports/01-custom-email-auth.md` | `server/controllers/authController.js`, `src/pages/AuthActionHandler.jsx` | 15/15 Lulus | **Terlacak**: Berfungsi sesuai spesifikasi, failover transparan teruji. |
-| **API IoT v1 (User)** | `docs/reports/02-iot-backend-integration.md` | `server/controllers/iotController.js`, `server/routes/iotRoutes.js` | 9/9 Lulus | **Ada Celah**: Tidak ada otorisasi kepemilikan perangkat (IDOR) & tanpa rate limiter. |
-| **API IoT v1 (ESP32)** | `docs/reports/02-iot-backend-integration.md` | `server/middleware/deviceAuthMiddleware.js` | 5/5 Lulus | **Ada Celah**: Shared static key tunggal, tanpa deteksi timeout offline. |
-| **Realtime Database** | `docs/reports/03-iot-database-architecture.md` | `server/repositories/deviceRepository.js` | Terintegrasi | **Ada Celah**: Silent mock fallback aktif di production, pending command tertimpa. |
-| **Antarmuka Frontend** | `design.md` | `src/pages/Dashboard.jsx`, `Schedules.jsx`, `History.jsx`, `Settings.jsx` | Build Sukses | **Ada Celah**: Mock statis ditampilkan saat database kosong, header online di-hardcode. |
+| **CRIT-01** | Keamanan (P0) | Kerentanan IDOR / BOLA pada seluruh rute pengguna IoT | **TERATASI** | Ditambahkan fungsi `getVerifiedDeviceId(req)` di `server/controllers/iotController.js` serta `getDeviceOwner`/`setDeviceOwner` di `server/repositories/deviceRepository.js`. Mengisolasi perangkat antar user dan menolak akses tak berizin dengan HTTP 403 `DEVICE_ACCESS_DENIED`. |
+| **CRIT-02** | Reliabilitas (P0) | Silent In-Memory Mock Fallback di environment produksi | **TERATASI** | Ditambahkan guard `assertDatabaseAvailable()` di `server/repositories/deviceRepository.js`. Melempar HTTP 503 `DATABASE_UNAVAILABLE` di mode `production` jika live RTDB tidak dapat diakses. |
+| **HIGH-01** | Keamanan (P1) | Ketiadaan Rate Limiting pada endpoint kontrol fisik & telemetri | **TERATASI** | Dibuat `actuatorRateLimiter` (10 req/min) dan `telemetryRateLimiter` (120 req/min) di `server/middleware/rateLimiter.js` dan dipasang pada rute `/commands/feed`, `/commands/pump`, serta `/device/telemetry`. |
+| **HIGH-02** | Integritas (P1) | Log aksi langsung dicatat "berhasil" sebelum dieksekusi fisik | **TERATASI** | Status log pakan & pompa diawali dengan `'pending'`. Diperbarui ke `'success'` atau `'failed'` hanya saat ESP32 melaporkan hasil melalui `POST /api/v1/device/commands/:id/result`. |
+| **HIGH-03** | Integritas (P1) | Race condition penimpaan perintah pending objek tunggal | **TERATASI** | Diubah menjadi antrean FIFO `commands/queue/{cmdId}` di RTDB. Perintah terlama diambil lebih dahulu dan tidak saling menimpa. |
+| **MED-01** | Frontend (P2) | Empty state masking: Data mock tiruan menutupi database kosong | **TERATASI** | Diperbaiki di `src/pages/Dashboard.jsx`, `Schedules.jsx`, dan `History.jsx`. Menggunakan inisialisasi array kosong `[]`, loading spinner, dan pesan ramah saat riwayat kosong. Error handling `handleFeed` diperbaiki agar tidak menampilkan alert sukses palsu. |
+| **MED-02** | Reliabilitas (P2) | Indikator Online di-hardcode tanpa heartbeat timeout | **TERATASI** | Di backend `server/services/iotService.js`, status online dihitung dinamis: offline jika `Date.now() - last_seen > 45000ms`. Di frontend `src/App.jsx`, status header memeriksa API berkala dan menampilkan status dinamis. |
+| **LOW-01** | Keamanan (P3) | Validasi API key perangkat rentan timing attack | **TERATASI** | Menggunakan `crypto.timingSafeEqual` di `server/middleware/deviceAuthMiddleware.js`. |
+| **ARCH-01** | Arsitektur | Penyebaran konfigurasi URL port backend terpisah | **TERATASI** | Frontend `src/services/authApi.js` dan `src/services/iotApi.js` kini menggunakan `getApiBaseUrl()` relatif `''` di mode produksi (Single-Origin melalui Nginx). Backend diikat ketat ke loopback `127.0.0.1:5000`. |
 
 ---
 
-## D. Daftar Temuan Audit Berdasarkan Prioritas
+## D. ESP32 Hardware Simulator Virtual
 
-### 1. Kategori: CRITICAL
+Untuk memverifikasi integrasi perangkat keras secara nyata tanpa ESP32 fisik, telah dibangun tool simulator mandiri:
 
-#### [CRIT-01] Kerentanan IDOR / Broken Object-Level Authorization (BOLA) pada Seluruh Endpoint IoT Pengguna
-- **Berkas & Lokasi:** [`server/controllers/iotController.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/controllers/iotController.js#L13-L21) (fungsi `getDeviceId`)
-- **Penjelasan Masalah:**
-  Fungsi penentu ID perangkat mengambil `deviceId` dari query string (`req.query.deviceId`) atau header (`x-device-id`), lalu melakukan fallback ke default:
-  ```javascript
-  function getDeviceId(req) {
-    return (
-      req.device?.id ||
-      req.query?.deviceId ||
-      req.headers['x-device-id'] ||
-      config.device.defaultDeviceId
-    );
-  }
-  ```
-  Tidak ada verifikasi apakah `req.user.uid` pemilik sah dari `deviceId` tersebut.
-- **Dampak Teknis:**
-  Pengguna A yang berhasil login ke akun miliknya dapat mengontrol pakan, menyalakan/mematikan pompa air, mengubah ambang batas pH, atau menghapus jadwal pakan milik Pengguna B dengan mengirimkan `?deviceId=<id_pengguna_lain>`.
-- **Bukti / Kondisi:**
-  Pada rute `POST /api/v1/commands/feed`, token valid pengguna mana pun dapat memicu servo kolam siapa pun.
-- **Rekomendasi Perbaikan:**
-  Buat relasi kepemilikan perangkat di database (misal: node `/user_devices/{uid}/{deviceId}` atau field `owner_uid` pada `/devices/{deviceId}/meta`) dan buat middleware otorisasi `requireDeviceOwnership` yang memverifikasi kepemilikan sebelum memproses aksi.
-- **Prioritas:** **CRITICAL (P0)**
+- **Lokasi Berkas:** [`tools/device-simulator/simulator.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/tools/device-simulator/simulator.js)
+- **Panduan Penggunaan:** [`tools/device-simulator/README.md`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/tools/device-simulator/README.md)
+- **Kemampuan:**
+  1. Booting dan sinkronisasi konfigurasi awal (`GET /api/v1/device/sync`).
+  2. Pengiriman telemetri periodik dengan sensor drift alami (pH 6.8 - 7.6, suhu 28°C, sisa pakan, uptime).
+  3. Polling antrean perintah pending (`GET /api/v1/device/commands/pending`).
+  4. Simulasi waktu aktuasi fisik servo pakan dan relay pompa.
+  5. Pelaporan hasil eksekusi (`POST /api/v1/device/commands/:id/result`).
+  6. Mode uji terisolasi: `--mode=unauthorized` (uji tolak 401), `--mode=invalid-payload` (uji tolak 400), `--mode=once` (uji 1 siklus untuk CI), `--mode=offline` (uji deteksi timeout).
 
 ---
 
-#### [CRIT-02] Silent In-Memory Mock Fallback di Production Menyembunyikan Kegagalan Database
-- **Berkas & Lokasi:** [`server/repositories/deviceRepository.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/repositories/deviceRepository.js#L78-L100) & [`server/config/firebaseAdmin.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/config/firebaseAdmin.js#L68-L76)
-- **Penjelasan Masalah:**
-  Jika environment variable `FIREBASE_SERVICE_ACCOUNT_KEY` belum dipasang, atau jika koneksi Firebase Realtime Database terputus di production:
-  `deviceRepository` secara diam-diam (*silent fallback*) beralih membaca dan menulis ke `mockStore` di memori RAM server tanpa mengembalikan status error HTTP (misal 503 Service Unavailable) ke klien.
-- **Dampak Teknis:**
-  1. Pengguna akan melihat data telemetri statis (`pH 7.2 Aman`) dan mengira kolam dalam kondisi normal, padahal sensor fisik kolam sedang mati atau mengalami keasaman berbahaya (`pH 4.0`).
-  2. Perintah pakan atau jadwal baru yang disimpan pengguna hanya tersimpan di RAM proses Node.js lokal dan akan lenyap seketika saat server cloud/container melakukan restart.
-- **Bukti / Kondisi:**
-  Saat server dijalankan tanpa service account key, seluruh endpoint `/api/v1/status`, `/api/v1/schedules`, dsb. tetap merespons status `200 OK` menggunakan data memori lokal.
-- **Rekomendasi Perbaikan:**
-  Pisahkan mock repository hanya untuk lingkungan `NODE_ENV === 'test'` atau `NODE_ENV === 'development'`. Di lingkungan `NODE_ENV === 'production'`, jika `!hasDatabaseAccess()`, server wajib merespons `503 Service Unavailable` dengan pesan diagnostik yang jelas.
-- **Prioritas:** **CRITICAL (P0)**
+## E. Arsitektur Deployment Single-VM (Nginx + Systemd)
+
+- **Dokumentasi Komprehensif:** [`docs/deployment/single-vm-architecture.md`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/docs/deployment/single-vm-architecture.md)
+- **Konfigurasi Reverse Proxy Nginx:** [`deploy/nginx/pakan-ikan.conf`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/deploy/nginx/pakan-ikan.conf)
+  - Mendengarkan port 80 (Cloudflare Tunnel target: `http://192.168.1.115:80`).
+  - Menyajikan aset statis SPA Vite dari `/var/www/pakan-ikan/dist` dengan SPA fallback `try_files $uri $uri/ /index.html;`.
+  - Meneruskan rute API `/api/*` secara internal ke `http://127.0.0.1:5000` dengan header `X-Real-IP`, `X-Forwarded-For`, `Authorization`, dan header perangkat.
+  - Kompresi gzip dan caching aset statis berumur 1 tahun.
+- **Konfigurasi Systemd Unit:** [`deploy/systemd/pakan-ikan-api.service`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/deploy/systemd/pakan-ikan-api.service)
+  - Mengelola proses Node.js Express backend sebagai daemon otomatis (`Restart=always`, `RestartSec=5`).
+  - Hardening sandbox keamanan: `NoNewPrivileges=true`, `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`.
 
 ---
 
-### 2. Kategori: HIGH
+## F. Inventaris Perubahan Berkas (File Change Inventory)
 
-#### [HIGH-01] Ketiadaan Rate Limiting pada Seluruh Rute IoT (`/api/v1/*`)
-- **Berkas & Lokasi:** [`server/routes/iotRoutes.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/routes/iotRoutes.js#L29-L63)
-- **Penjelasan Masalah:**
-  Seluruh endpoint kontrol dan telemetri (`/api/v1/commands/feed`, `/api/v1/commands/pump`, `/api/v1/device/telemetry`) tidak dipasangi middleware *rate limiting*.
-- **Dampak Teknis:**
-  1. *Actuator Abuse / Hardware Damage:* Penyerang atau script loop dapat memanggil `POST /api/v1/commands/feed` puluhan kali dalam hitungan detik, menyebabkan wadah pakan tumpah habis ke kolam dan meracuni ikan (amonia tinggi).
-  2. *Database Exhaustion:* ESP32 atau penyerang dapat membanjiri `POST /api/v1/device/telemetry` sehingga kuota penulisan Firebase RTDB habis seketika.
-- **Bukti / Kondisi:**
-  Pengujian endpoint `/api/v1/commands/feed` dapat dieksekusi ratusan kali berturut-turut tanpa batas waktu jeda (*cooldown*).
-- **Rekomendasi Perbaikan:**
-  Terapkan `express-rate-limit` khusus IoT:
-  - Perintah manual pakan: maksimal 1 request per 30 detik per perangkat (*cooldown* mekanis servo).
-  - Perintah pompa: maksimal 5 request per menit.
-  - Telemetri ESP32: maksimal 1 request per 3 detik per perangkat.
-- **Prioritas:** **HIGH (P1)**
-
----
-
-#### [HIGH-02] Pencatatan Log Aksi "Berhasil" Sebelum Eksekusi Fisik Aktuator
-- **Berkas & Lokasi:** [`server/services/iotService.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/services/iotService.js#L85-L91)
-- **Penjelasan Masalah:**
-  Pada fungsi `triggerFeedCommand` dan `triggerPumpCommand`, aksi langsung dicatat ke `action_logs` dengan status `'success'` saat perintah baru dimasukkan ke antrean (*pending*):
-  ```javascript
-  await deviceRepository.addActionLog(deviceId, {
-    type: 'feed',
-    action: source === 'manual' ? 'Manual Feed' : 'Auto Feed',
-    status: 'success', // <--- Dinyatakan sukses sebelum ESP32 mengeksekusi
-    timestamp: new Date().toISOString(),
-  });
-  ```
-  Jika ESP32 offline, atau mengalami servo macet lalu melaporkan `failed` melalui `/device/commands/:id/result`, log aksi tidak pernah diperbarui.
-- **Dampak Teknis:**
-  Riwayat aksi di antarmuka web menampilkan "Berhasil", padahal pakan tidak pernah keluar atau pompa tidak pernah menyala.
-- **Rekomendasi Perbaikan:**
-  Catat log aksi awal dengan status `'queued'` atau `'pending'`. Perbarui status log menjadi `'success'` atau `'failed'` hanya setelah ESP32 mengirim laporan eksekusi melalui endpoint `POST /api/v1/device/commands/:id/result`.
-- **Prioritas:** **HIGH (P1)**
+| Berkas | Jenis Perubahan | Deskripsi Perubahan |
+|---|---|---|
+| `deploy/nginx/pakan-ikan.conf` | Dibuat | Konfigurasi reverse proxy Nginx port 80 untuk single-origin routing dan SPA fallback. |
+| `deploy/systemd/pakan-ikan-api.service` | Dibuat | Service unit systemd untuk manajemen daemon backend Express dengan auto-restart dan sandbox hardening. |
+| `tools/device-simulator/simulator.js` | Dibuat | Script simulator perangkat keras virtual ESP32 berbasis Node.js dengan multiple mode uji. |
+| `tools/device-simulator/README.md` | Dibuat | Panduan penggunaan lengkap simulator virtual ESP32. |
+| `docs/deployment/single-vm-architecture.md` | Dibuat | Panduan komprehensif arsitektur, instalasi, pengujian, pemantauan, dan rollback Single-VM. |
+| `server/tests/simulatorIntegration.test.js` | Dibuat | Suite pengujian otomatis untuk simulator lifecycle, device ownership guard, mock guard, dan timing safe auth. |
+| `server/config/appConfig.js` | Dimodifikasi | Menambahkan konfigurasi `host: process.env.HOST || '127.0.0.1'` untuk loopback binding. |
+| `server/server.js` | Dimodifikasi | Memperbarui listener server agar terikat ke `config.host` dan `config.port`. |
+| `server/.env.example` | Dimodifikasi | Menambahkan `HOST=127.0.0.1` dan dokumentasi deployment single-VM. |
+| `server/controllers/iotController.js` | Dimodifikasi | Menerapkan `getVerifiedDeviceId(req)` untuk BOLA/IDOR protection dan export fungsi verifikasi. |
+| `server/repositories/deviceRepository.js` | Dimodifikasi | Menerapkan `getDeviceOwner`/`setDeviceOwner`, antrean FIFO `commands/queue`, dua fase action logs, dan `assertDatabaseAvailable()`. |
+| `server/routes/iotRoutes.js` | Dimodifikasi | Memasang middleware `actuatorRateLimiter` dan `telemetryRateLimiter`. |
+| `server/middleware/rateLimiter.js` | Dimodifikasi | Menambahkan instance rate limiter khusus aktuator kolam dan telemetri ESP32. |
+| `server/middleware/deviceAuthMiddleware.js` | Dimodifikasi | Menggunakan `crypto.timingSafeEqual` untuk membandingkan device API key. |
+| `server/services/iotService.js` | Dimodifikasi | Menghitung status online dinamis (timeout 45 detik) dan mengawali log aksi dengan status 'pending'. |
+| `src/services/authApi.js` | Dimodifikasi | Menerapkan `getApiBaseUrl()` dengan fallback relatif di mode produksi untuk single-origin Nginx. |
+| `src/services/iotApi.js` | Dimodifikasi | Menerapkan `getApiBaseUrl()` tunggal konsisten dengan `authApi`. |
+| `src/pages/Dashboard.jsx` | Dimodifikasi | Menghubungkan kartu "Jadwal Berikutnya" secara dinamis, memperbaiki rollback pompa, dan membetulkan error handler pakan. |
+| `src/pages/Schedules.jsx` | Dimodifikasi | Menghilangkan data tiruan, menginisialisasi state kosong, dan menambahkan empty state ramah pengguna. |
+| `src/pages/History.jsx` | Dimodifikasi | Menghilangkan data tiruan, menginisialisasi state kosong, dan menambahkan empty state ramah pengguna. |
+| `src/App.jsx` | Dimodifikasi | Menghubungkan indikator Online header secara dinamis melalui polling status backend. |
+| `.env.example` | Dimodifikasi | Menyelaraskan panduan konfigurasi environment Vite untuk single-origin Nginx deployment. |
+| `docs/WORK_LOG.md` | Dimodifikasi | Mencatat riwayat eksekusi Tugas 04 secara kronologis. |
 
 ---
 
-#### [HIGH-03] Penimpaan Perintah Pending (*Command Queue Overwrite / Race Condition*)
-- **Berkas & Lokasi:** [`server/repositories/deviceRepository.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/repositories/deviceRepository.js#L173-L199) (metode `createCommand`)
-- **Penjelasan Masalah:**
-  Perintah tertunda disimpan pada satu node objek tunggal: `devices/${id}/commands/pending`.
-  Jika pengguna menekan tombol "Beri Pakan" lalu dalam 1 detik menekan tombol "Pompa Air", perintah pompa akan menimpa perintah pakan.
-- **Dampak Teknis:**
-  Perintah pakan pertama terhapus dari antrean tanpa sempat dibaca atau dieksekusi oleh mikrokontroler ESP32.
-- **Rekomendasi Perbaikan:**
-  Ubah skema perintah menjadi antrean FIFO berbasis daftar/push ID: `/devices/{deviceId}/commands/queue/{commandId}`. ESP32 mengambil perintah terlama yang belum selesai (*status: 'pending'*).
-- **Prioritas:** **HIGH (P1)**
-
----
-
-### 3. Kategori: MEDIUM
-
-#### [MED-01] Frontend Menampilkan Data Mock Tiruan Saat Database Kosong (*Empty State Masking*)
-- **Berkas & Lokasi:**
-  - [`src/pages/Schedules.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/pages/Schedules.jsx#L6-L23)
-  - [`src/pages/History.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/pages/History.jsx#L8-L44)
-  - [`src/pages/Dashboard.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/pages/Dashboard.jsx#L130-L140)
-- **Penjelasan Masalah:**
-  1. Di `Schedules.jsx` dan `History.jsx`, `useState` diinisialisasi dengan data tiruan bawaan (misal jadwal 07:00 Pagi dan log pH palsu). Blok `then()` mengecek:
-     `if (res?.data && Array.isArray(res.data) && res.data.length > 0)`
-     Jika database memiliki 0 jadwal atau 0 riwayat (pengguna baru atau seluruh jadwal dihapus), state **tidak pernah diperbarui ke array kosong**. Akibatnya, pengguna tetap disuguhi jadwal dan riwayat tiruan.
-  2. Di `Dashboard.jsx`, kartu "Jadwal Berikutnya" di-hardcode teks `"17:00 Sore Hari Aktif"` tanpa menghubungkannya dengan jadwal aktual yang ada di database.
-  3. Di `Dashboard.jsx`, pada blok `catch` fungsi `handleFeed`:
-     ```javascript
-     catch {
-       alert('Perintah pakan berhasil dikirim.'); // <--- Alert salah saat request gagal
-     }
-     ```
-- **Dampak Teknis:**
-  Pengguna tertipu melihat data tiruan dan mengira pakan berhasil diberikan saat jaringan sedang error.
-- **Rekomendasi Perbaikan:**
-  Inisialisasi state dengan array kosong `[]`, tampilkan *Skeleton Loading* saat memuat data, tampilkan *Empty State* yang ramah jika data berjumlah 0, dan perbaiki penanganan error agar menampilkan alert kegagalan yang sebenarnya.
-- **Prioritas:** **MEDIUM (P2)**
-
----
-
-#### [MED-02] Ketiadaan Mekanisme Timeout Status Online (*Heartbeat Disconnect Detection*)
-- **Berkas & Lokasi:** [`server/services/iotService.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/services/iotService.js#L26-L45) & [`src/App.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/App.jsx#L67-L70)
-- **Penjelasan Masalah:**
-  1. Di backend, status `online: true` hanya diperbarui saat ESP32 mengirim telemetri. Tidak ada pengecekan selisih waktu (`Date.now() - Date.parse(last_seen) > 30000ms`). Jika perangkat mati listrik atau Wi-Fi terputus, field `status.online` di database tetap bernilai `true`.
-  2. Di frontend [`App.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/App.jsx), indikator status perangkat di header atas di-hardcode secara statis:
-     ```jsx
-     <div className="device-status">
-       <span className="status-indicator online"></span>
-       <span>Online</span>
-     </div>
-     ```
-- **Dampak Teknis:**
-  Sistem selalu mengklaim alat sedang "Online" meskipun mikrokontroler kolam mati berhari-hari.
-- **Rekomendasi Perbaikan:**
-  Di backend, hitung status online secara dinamis: jika `Date.now() - new Date(last_seen).getTime() > 45000` (45 detik), kembalikan `online: false`. Di frontend, hubungkan status header dengan nilai `online` dinamis dari API.
-- **Prioritas:** **MEDIUM (P2)**
-
----
-
-#### [MED-03] Pertumbuhan Data Riwayat Realtime Database Tanpa Batas (*Unbounded Storage Growth*)
-- **Berkas & Lokasi:** [`server/repositories/deviceRepository.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/repositories/deviceRepository.js#L237-L255) (metode `addPhLog`)
-- **Penjelasan Masalah:**
-  Setiap telemetri sensor pH yang masuk disimpan sebagai node baru di Firebase RTDB (`devices/${id}/logs/ph_logs/${logId}`). Dengan interval pengiriman ESP32 setiap 10 detik, sistem menghasilkan 8.640 entri per hari (lebih dari 250.000 entri per bulan).
-- **Dampak Teknis:**
-  Konsumsi bandwidth Firebase meningkat pesat, waktu baca (*query latency*) melambat, dan kuota penyimpanan gratis Firebase akan cepat habis.
-- **Rekomendasi Perbaikan:**
-  Implementasikan retensi data:
-  1. Simpan riwayat detail per 10 detik hanya untuk 24 jam terakhir.
-  2. Lakukan pemangkasan (*pruning*) otomatis pada entri yang lebih tua dari batas retensi.
-- **Prioritas:** **MEDIUM (P2)**
-
----
-
-### 4. Kategori: LOW
-
-#### [LOW-01] Shared Static Global Device API Key Tanpa Rotasi / Per-Device Secret
-- **Berkas & Lokasi:** [`server/middleware/deviceAuthMiddleware.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/server/middleware/deviceAuthMiddleware.js#L14-L24)
-- **Penjelasan Masalah:**
-  Semua perangkat menggunakan satu kunci statis `DEVICE_API_KEY`. Validasi string menggunakan operator `!==` standar tanpa perbandingan waktu konstan (*timing-safe equal*).
-- **Dampak Teknis:**
-  Jika satu unit ESP32 terbongkar atau dicuri kunci kodenya, penyerang dapat memanipulasi telemetri unit lain.
-- **Rekomendasi Perbaikan:**
-  Gunakan `crypto.timingSafeEqual` untuk mencegah *timing attacks*, dan rencanakan pembuatan token per-device di masa mendatang.
-- **Prioritas:** **LOW (P3)**
-
----
-
-#### [LOW-02] Ukuran Bundle Frontend Melebihi 500 kB Tanpa Code-Splitting
-- **Berkas & Lokasi:** [`vite.config.js`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/vite.config.js) & [`src/App.jsx`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/src/App.jsx)
-- **Penjelasan Masalah:**
-  Proses build menghasilkan bundle JavaScript tunggal sebesar 543.43 kB.
-- **Dampak Teknis:**
-  Waktu muat awal pada smartphone dengan koneksi internet seluler yang kurang stabil menjadi sedikit lebih lambat.
-- **Rekomendasi Perbaikan:**
-  Terapkan `React.lazy()` dan `Suspense` untuk rute-rute halaman utama (`Dashboard`, `Schedules`, `History`, `Settings`, `AuthActionHandler`).
-- **Prioritas:** **LOW (P3)**
-
----
-
-## E. Pengujian dan Validasi Aktual
-
-Semua pengujian dijalankan langsung pada repositori saat audit:
+## G. Pengujian dan Validasi Faktual
 
 | Pengujian | Perintah | Hasil Aktual | Keterangan |
 |---|---|---|---|
-| **Unit & Integration Tests** | `cd server && npm test` | **43/43 Lulus (100%)** | Durasi 248ms (Menguji validator, service, dan handler mock) |
-| **Frontend Linter** | `npm run lint` | **0 errors, 0 warnings** | Memeriksa kepatuhan sintaks dan React Hooks |
-| **Frontend Production Build** | `npm run build` | **Sukses (204ms)** | 1781 modul diproses, menghasilkan `dist/` |
-| **Static Code Audit** | Penelusuran baris per baris | **10 Temuan Teridentifikasi** | 2 Critical, 3 High, 3 Medium, 2 Low |
-| **ESP32 Hardware Physical Test** | N/A | **Belum Dilakukan** | Hardware fisik belum dihubungkan ke server |
-| **Live Firebase RTDB Test** | N/A | **Belum Dilakukan** | Kredensial privat service account belum ditaruh di server lokal |
+| **Backend Unit & Integration Tests** | `cd server && npm test` | **51/51 Lulus (100%)** | 22 test suites, durasi ~200ms. Seluruh pengujian lolos tanpa kegagalan. |
+| **ESP32 Simulator CLI (Unauthorized Mode)** | `node tools/device-simulator/simulator.js --mode=unauthorized` | **HTTP 401 Lolos** | Backend menolak kunci tidak valid dengan status `DEVICE_UNAUTHORIZED`. |
+| **ESP32 Simulator CLI (Invalid Payload Mode)** | `node tools/device-simulator/simulator.js --mode=invalid-payload` | **HTTP 400 Lolos** | Backend menolak nilai pH ekstrem (25.0) dengan pesan error validasi. |
+| **ESP32 Simulator CLI (Single-Cycle Mode)** | `node tools/device-simulator/simulator.js --mode=once` | **Lolos Penuh** | Boot sync, pengiriman telemetri, command queue polling, dan penyelesaian siklus berhasil. |
+| **Frontend Linter** | `npm run lint` | **0 errors, 0 warnings** | Memeriksa seluruh berkas React JSX, Hooks dependencies, dan server globals. |
+| **Frontend Production Build** | `npm run build` | **Sukses (210ms)** | 1781 modul diproses, menghasilkan `dist/` siap deploy ke `/var/www/pakan-ikan/dist`. |
 
 ---
 
-## F. Rekomendasi Urutan Perbaikan (Remediation Plan)
+## H. Penilaian Kesiapan Deployment (Deployment Readiness Assessment)
 
-Berdasarkan tingkat risiko dan dampak arsitektur, urutan perbaikan yang disarankan adalah:
-
-```
-[Fase 1: Keamanan & Integritas Kritis]
-1. Perbaiki CRIT-01: Pasang relasi kepemilikan perangkat (User Ownership) untuk mencegah BOLA/IDOR.
-2. Perbaiki CRIT-02: Batasi in-memory mock fallback hanya untuk environment test/dev; kembalikan HTTP 503 di production saat RTDB putus.
-
-[Fase 2: Keandalan Kontrol & Hardware]
-3. Perbaiki HIGH-01: Pasang rate limiting ketat pada perintah pakan dan pompa untuk mencegah kerusakan fisik aktuator.
-4. Perbaiki HIGH-02: Ubah status log aksi awal menjadi 'pending' dan mutakhirkan ke 'success' hanya saat ESP32 mengonfirmasi eksekusi.
-5. Perbaiki HIGH-03: Ubah node `commands/pending` menjadi struktur antrean FIFO agar perintah tidak saling menimpa.
-
-[Fase 3: Pengalaman Pengguna & Telemetri]
-6. Perbaiki MED-01: Perbaiki inisialisasi state frontend, tampilkan empty state yang benar, dan hubungkan kartu "Jadwal Berikutnya" dengan data database.
-7. Perbaiki MED-02: Buat kalkulasi status online dinamis berbasis ambang batas waktu (heartbeat timeout).
-8. Perbaiki MED-03: Buat mekanisme retensi/pembersihan log telemetri berkala di Realtime Database.
-
-[Fase 4: Optimasi & Pemeliharaan]
-9. Perbaiki LOW-01: Gunakan `crypto.timingSafeEqual` untuk otentikasi kunci perangkat.
-10. Perbaiki LOW-02: Terapkan code-splitting (`React.lazy`) pada router frontend.
-```
+1. **Keamanan:**
+   - Celah BOLA/IDOR telah ditutup sepenuhnya.
+   - Perangkat keras dilindungi oleh *rate limiter* aktuator untuk mencegah kerusakan mekanis atau overfeeding.
+   - Backend terisolasi di antarmuka lokal `127.0.0.1:5000` dan dilindungi sandbox systemd.
+2. **Arsitektur Jaringan:**
+   - Single-origin topology via Nginx meniadakan kerumitan CORS.
+   - Cloudflare Tunnel tetap mengarah ke `192.168.1.115:80` tanpa perlu perubahan konfigurasi tunnel.
+3. **Hardware Simulation:**
+   - Simulator ESP32 virtual siap digunakan untuk demonstrasi, simulasi beban, dan verifikasi otomatis tanpa bergantung pada alat fisik.
 
 ---
 
-## G. Status Akhir Audit
-**Completed** (Audit komprehensif selesai, seluruh berkas sumber telah diperiksa, 10 temuan telah diklasifikasikan dengan bukti kode dan rekomendasi perbaikan, serta seluruh unit test dan build saat ini telah tercatat secara faktual).
+## I. Batasan yang Diketahui (Known Limitations) & Langkah Berikutnya
+
+1. **Hardware Fisik:**
+   Pengujian saat ini divalidasi menggunakan simulator perangkat lunak virtual `tools/device-simulator/simulator.js`. Pengujian langsung dengan mikrokontroler ESP32 fisik, modul sensor pH analog (PH-4502C), dan motor servo SG90/MG996R dijadwalkan pada tahap pengujian lapangan.
+2. **Kredensial Firebase di VM:**
+   Saat melakukan deployment aktual ke VM `192.168.1.115`, file `serviceAccountKey.json` Firebase Admin SDK wajib diletakkan secara aman di `/var/www/pakan-ikan/server/serviceAccountKey.json` dan tidak boleh di-commit ke Git repository publik.

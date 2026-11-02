@@ -1,4 +1,13 @@
+import crypto from 'crypto';
 import config from '../config/appConfig.js';
+
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 /**
  * Middleware Autentikasi Khusus Perangkat ESP32
@@ -19,7 +28,7 @@ export function requireDeviceAuth(req, res, next) {
 
   const configuredKey = config.device.apiKey;
 
-  if (!headerKey || headerKey !== configuredKey) {
+  if (!headerKey || !safeCompare(headerKey, configuredKey)) {
     return res.status(401).json({
       success: false,
       code: 'DEVICE_UNAUTHORIZED',

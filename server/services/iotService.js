@@ -71,11 +71,12 @@ export class IotService {
       servo_status: 'running',
     });
 
-    // Catat log aksi pakan
+    // Catat log aksi pakan dalam status 'pending' (dimutakhirkan menjadi 'success' setelah konfirmasi ESP32)
     await deviceRepository.addActionLog(deviceId, {
       type: 'feed',
       action: source === 'manual' ? 'Manual Feed' : 'Auto Feed',
-      status: 'success',
+      status: 'pending',
+      command_id: command.id,
       timestamp: new Date().toISOString(),
     });
 
@@ -102,11 +103,12 @@ export class IotService {
       pump_status: nextState,
     });
 
-    // Catat log aksi pompa
+    // Catat log aksi pompa dalam status 'pending'
     await deviceRepository.addActionLog(deviceId, {
       type: 'pump',
       action: isTurnOn ? 'Manual ON' : 'Manual OFF',
-      status: 'success',
+      status: 'pending',
+      command_id: command.id,
       timestamp: new Date().toISOString(),
     });
 
@@ -122,6 +124,14 @@ export class IotService {
       deviceRepository.getSettings(deviceId),
       deviceRepository.getSchedules(deviceId),
     ]);
+
+    // Deteksi heartbeat timeout secara dinamis (45 detik)
+    if (status) {
+      const isRecentlySeen = status.last_seen
+        ? Date.now() - new Date(status.last_seen).getTime() < 45000
+        : false;
+      status.online = Boolean(status.online && isRecentlySeen);
+    }
 
     // Filter hanya jadwal yang aktif untuk memori ESP32 yang efisien
     const activeSchedules = (schedules || []).filter((s) => s.active);
@@ -143,6 +153,14 @@ export class IotService {
       deviceRepository.getStatus(deviceId),
       deviceRepository.getSettings(deviceId),
     ]);
+
+    // Deteksi heartbeat timeout secara dinamis (45 detik)
+    if (status) {
+      const isRecentlySeen = status.last_seen
+        ? Date.now() - new Date(status.last_seen).getTime() < 45000
+        : false;
+      status.online = Boolean(status.online && isRecentlySeen);
+    }
 
     return {
       status,

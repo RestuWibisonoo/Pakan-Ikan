@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Home, CalendarClock, History as HistoryIcon, Settings, Fish } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import iotApi from './services/iotApi';
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -42,6 +44,28 @@ function BottomNavigation() {
 
 function Header() {
   const { user } = useAuth();
+  const [deviceOnline, setDeviceOnline] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkStatus = () => {
+      iotApi
+        .getSystemStatus()
+        .then((res) => {
+          if (isMounted) setDeviceOnline(Boolean(res?.data?.status?.online));
+        })
+        .catch(() => {
+          if (isMounted) setDeviceOnline(false);
+        });
+    };
+
+    checkStatus();
+    const interval = setInterval(checkStatus, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <header className="app-header">
@@ -66,8 +90,10 @@ function Header() {
           </span>
         )}
         <div className="device-status">
-          <span className="status-indicator online"></span>
-          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Online</span>
+          <span className={`status-indicator ${deviceOnline ? 'online' : 'offline'}`}></span>
+          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+            {deviceOnline ? 'Online' : 'Offline'}
+          </span>
         </div>
       </div>
     </header>

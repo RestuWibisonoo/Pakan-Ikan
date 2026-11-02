@@ -3,11 +3,15 @@ import config from '../config/appConfig.js';
 
 /**
  * Penyimpanan Data In-Memory Fallback
- * Digunakan jika server berjalan tanpa service account live atau saat unit testing
+ * HANYA diperbolehkan di lingkungan testing atau development lokal.
+ * Di lingkungan produksi, kegagalan database live akan mengembalikan error 503.
  */
 const mockStore = {
   devices: {
     'fish-feeder-001': {
+      meta: {
+        owner_uid: null, // Dinamis diisi oleh pengguna pertama yang mengklaim
+      },
       status: {
         online: true,
         last_seen: new Date().toISOString(),
@@ -28,7 +32,8 @@ const mockStore = {
         'sched_2': { id: 'sched_2', time: '17:00', label: 'Sore', active: true },
       },
       commands: {
-        pending: null,
+        queue: {},
+        history: {},
       },
       logs: {
         ph_logs: [
@@ -48,6 +53,7 @@ const mockStore = {
 function getOrCreateMockDevice(deviceId) {
   if (!mockStore.devices[deviceId]) {
     mockStore.devices[deviceId] = {
+      meta: { owner_uid: null },
       status: {
         online: false,
         last_seen: new Date().toISOString(),
@@ -64,7 +70,7 @@ function getOrCreateMockDevice(deviceId) {
         device_name: 'Kolam Baru',
       },
       schedules: {},
-      commands: { pending: null },
+      commands: { queue: {}, history: {} },
       logs: { ph_logs: [], action_logs: [] },
     };
   }
@@ -77,9 +83,73 @@ class DeviceRepository {
   }
 
   /**
+   * Menolak silent mock fallback jika server berjalan di environment produksi
+   */
+  assertDatabaseAvailable() {
+    if ((config.nodeEnv === 'production' || process.env.NODE_ENV === 'production') && !hasDatabaseAccess()) {
+      const err = new Error(
+        'Layanan Firebase Realtime Database belum terkonfigurasi atau tidak tersedia di lingkungan produksi.'
+      );
+      err.status = 503;
+      err.code = 'DATABASE_UNAVAILABLE';
+      throw err;
+    }
+  }
+
+  /**
+   * Mengambil UID pemilik perangkat
+   */
+  async getDeviceOwner(deviceId) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          const snapshot = await db.ref(`devices/${id}/meta/owner_uid`).once('value');
+          if (snapshot.exists()) {
+            return snapshot.val();
+          }
+        }
+      } catch (err) {
+        console.warn(`[DeviceRepository] Gagal membaca owner_uid RTDB (${err.message}).`);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    return dev.meta?.owner_uid || null;
+  }
+
+  /**
+   * Menetapkan atau mengklaim kepemilikan perangkat oleh pengguna
+   */
+  async setDeviceOwner(deviceId, ownerUid) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          await db.ref(`devices/${id}/meta/owner_uid`).set(ownerUid);
+        }
+      } catch (err) {
+        console.warn(`[DeviceRepository] Gagal menyimpan owner_uid RTDB (${err.message}).`);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    dev.meta = dev.meta || {};
+    dev.meta.owner_uid = ownerUid;
+    return ownerUid;
+  }
+
+  /**
    * Mengambil status perangkat
    */
   async getStatus(deviceId) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -92,7 +162,7 @@ class DeviceRepository {
           }
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca Realtime Database (${err.message}), beralih ke cache lokal.`);
+        console.warn(`[DeviceRepository] Gagal membaca RTDB (${err.message}), beralih ke cache lokal.`);
       }
     }
 
@@ -104,6 +174,7 @@ class DeviceRepository {
    * Memperbarui status perangkat
    */
   async updateStatus(deviceId, patch) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const updated = {
       ...patch,
@@ -130,6 +201,7 @@ class DeviceRepository {
    * Mengambil pengaturan perangkat
    */
   async getSettings(deviceId) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -154,6 +226,7 @@ class DeviceRepository {
    * Memperbarui pengaturan perangkat
    */
   async updateSettings(deviceId, newSettings) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -176,6 +249,7 @@ class DeviceRepository {
    * Mengambil daftar jadwal pakan
    */
   async getSchedules(deviceId) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -185,8 +259,9 @@ class DeviceRepository {
           const snapshot = await db.ref(`devices/${id}/schedules`).once('value');
           if (snapshot.exists()) {
             const val = snapshot.val();
-            return Object.values(val);
+            return Object.values(val || {});
           }
+          return [];
         }
       } catch (err) {
         console.warn(`[DeviceRepository] Gagal membaca jadwal RTDB (${err.message}).`);
@@ -194,13 +269,14 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
-    return Object.values(dev.schedules);
+    return Object.values(dev.schedules || {});
   }
 
   /**
    * Menyimpan jadwal baru atau memperbarui jadwal
    */
   async saveSchedule(deviceId, schedule) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const scheduleId = schedule.id || `sched_${Date.now()}`;
     const scheduleData = {
@@ -221,6 +297,7 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
+    dev.schedules = dev.schedules || {};
     dev.schedules[scheduleId] = scheduleData;
     return scheduleData;
   }
@@ -229,6 +306,7 @@ class DeviceRepository {
    * Menghapus jadwal pakan
    */
   async deleteSchedule(deviceId, scheduleId) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -243,15 +321,17 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
+    dev.schedules = dev.schedules || {};
     const existed = Boolean(dev.schedules[scheduleId]);
     delete dev.schedules[scheduleId];
     return existed;
   }
 
   /**
-   * Membuat perintah baru untuk ESP32 (misal feed atau pump)
+   * Membuat perintah baru dalam antrean FIFO (mencegah overwrite race condition)
    */
   async createCommand(deviceId, command) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const commandData = {
@@ -266,46 +346,64 @@ class DeviceRepository {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/commands/pending`).set(commandData);
+          await db.ref(`devices/${id}/commands/queue/${cmdId}`).set(commandData);
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal menyimpan command RTDB (${err.message}).`);
+        console.warn(`[DeviceRepository] Gagal menyimpan command queue RTDB (${err.message}).`);
       }
     }
 
     const dev = getOrCreateMockDevice(id);
-    dev.commands.pending = commandData;
+    dev.commands = dev.commands || { queue: {}, history: {} };
+    dev.commands.queue = dev.commands.queue || {};
+    dev.commands.queue[cmdId] = commandData;
     return commandData;
   }
 
   /**
-   * Mengambil perintah pending terbaru untuk dieksekusi ESP32
+   * Mengambil perintah pending tertua (FIFO) untuk dieksekusi ESP32
    */
   async getLatestPendingCommand(deviceId) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/commands/pending`).once('value');
+          const snapshot = await db
+            .ref(`devices/${id}/commands/queue`)
+            .orderByChild('created_at')
+            .limitToFirst(1)
+            .once('value');
           if (snapshot.exists()) {
-            return snapshot.val();
+            const val = snapshot.val();
+            const firstKey = Object.keys(val)[0];
+            return val[firstKey];
           }
+          return null;
         }
       } catch (err) {
-        console.warn(`[DeviceRepository] Gagal membaca command pending RTDB (${err.message}).`);
+        console.warn(`[DeviceRepository] Gagal membaca command queue RTDB (${err.message}).`);
       }
     }
 
     const dev = getOrCreateMockDevice(id);
-    return dev.commands.pending;
+    dev.commands = dev.commands || { queue: {}, history: {} };
+    const queue = dev.commands.queue || {};
+    const keys = Object.keys(queue);
+    if (keys.length === 0) return null;
+    const sorted = keys
+      .map((k) => queue[k])
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    return sorted[0] || null;
   }
 
   /**
-   * Memperbarui status hasil eksekusi perintah dari ESP32
+   * Memperbarui status hasil eksekusi perintah dari ESP32 dan menyinkronkan action_logs
    */
   async updateCommandResult(deviceId, commandId, result) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const finishedAt = new Date().toISOString();
 
@@ -320,7 +418,7 @@ class DeviceRepository {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/commands/pending`).remove();
+          await db.ref(`devices/${id}/commands/queue/${commandId}`).remove();
           await db.ref(`devices/${id}/commands/history/${commandId}`).set(resultData);
         }
       } catch (err) {
@@ -329,16 +427,67 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
-    if (dev.commands.pending?.id === commandId) {
-      dev.commands.pending = null;
+    dev.commands = dev.commands || { queue: {}, history: {} };
+    if (dev.commands.queue && dev.commands.queue[commandId]) {
+      delete dev.commands.queue[commandId];
     }
+    dev.commands.history = dev.commands.history || {};
+    dev.commands.history[commandId] = resultData;
+
+    // Sinkronkan status pada riwayat aksi pengguna!
+    await this.updateActionLogStatusByCommandId(
+      id,
+      commandId,
+      result.status === 'completed' ? 'success' : 'failed'
+    );
+
     return resultData;
   }
 
   /**
-   * Menambahkan log nilai pH
+   * Memperbarui status log aksi berdasarkan ID perintah yang selesai dieksekusi
+   */
+  async updateActionLogStatusByCommandId(deviceId, commandId, newStatus) {
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          const snapshot = await db
+            .ref(`devices/${id}/logs/action_logs`)
+            .orderByChild('command_id')
+            .equalTo(commandId)
+            .once('value');
+
+          if (snapshot.exists()) {
+            const updates = {};
+            snapshot.forEach((child) => {
+              updates[`devices/${id}/logs/action_logs/${child.key}/status`] = newStatus;
+            });
+            await db.ref().update(updates);
+          }
+        }
+      } catch (err) {
+        console.warn(`[DeviceRepository] Gagal sinkronisasi status action_log RTDB (${err.message}).`);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    if (dev.logs?.action_logs) {
+      for (const log of dev.logs.action_logs) {
+        if (log.command_id === commandId) {
+          log.status = newStatus;
+        }
+      }
+    }
+  }
+
+  /**
+   * Menambahkan log nilai pH dengan retensi data
    */
   async addPhLog(deviceId, logEntry) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const logId = `ph_${Date.now()}`;
     const data = {
@@ -360,8 +509,9 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
+    dev.logs = dev.logs || { ph_logs: [], action_logs: [] };
     dev.logs.ph_logs.unshift(data);
-    if (dev.logs.ph_logs.length > 100) dev.logs.ph_logs.pop();
+    if (dev.logs.ph_logs.length > 200) dev.logs.ph_logs.pop();
     return data;
   }
 
@@ -369,6 +519,7 @@ class DeviceRepository {
    * Mengambil riwayat nilai pH
    */
   async getPhLogs(deviceId, limit = 50) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -381,8 +532,9 @@ class DeviceRepository {
             .once('value');
           if (snapshot.exists()) {
             const val = snapshot.val();
-            return Object.values(val).reverse();
+            return Object.values(val || {}).reverse();
           }
+          return [];
         }
       } catch (err) {
         console.warn(`[DeviceRepository] Gagal membaca log pH RTDB (${err.message}).`);
@@ -390,20 +542,22 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
-    return dev.logs.ph_logs.slice(0, limit);
+    return (dev.logs?.ph_logs || []).slice(0, limit);
   }
 
   /**
-   * Menambahkan log aksi (pakan / pompa)
+   * Menambahkan log aksi (pakan / pompa) dengan status awal
    */
   async addActionLog(deviceId, logEntry) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
     const logId = `act_${Date.now()}`;
     const data = {
       id: logId,
       type: logEntry.type, // 'feed' | 'pump'
       action: logEntry.action,
-      status: logEntry.status, // 'success' | 'failed'
+      status: logEntry.status || 'pending', // 'pending' | 'success' | 'failed'
+      command_id: logEntry.command_id || null,
       timestamp: logEntry.timestamp || new Date().toISOString(),
     };
 
@@ -419,8 +573,9 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
+    dev.logs = dev.logs || { ph_logs: [], action_logs: [] };
     dev.logs.action_logs.unshift(data);
-    if (dev.logs.action_logs.length > 100) dev.logs.action_logs.pop();
+    if (dev.logs.action_logs.length > 200) dev.logs.action_logs.pop();
     return data;
   }
 
@@ -428,6 +583,7 @@ class DeviceRepository {
    * Mengambil riwayat log aksi
    */
   async getActionLogs(deviceId, limit = 50) {
+    this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
     if (hasDatabaseAccess()) {
@@ -440,8 +596,9 @@ class DeviceRepository {
             .once('value');
           if (snapshot.exists()) {
             const val = snapshot.val();
-            return Object.values(val).reverse();
+            return Object.values(val || {}).reverse();
           }
+          return [];
         }
       } catch (err) {
         console.warn(`[DeviceRepository] Gagal membaca log aksi RTDB (${err.message}).`);
@@ -449,10 +606,9 @@ class DeviceRepository {
     }
 
     const dev = getOrCreateMockDevice(id);
-    return dev.logs.action_logs.slice(0, limit);
+    return (dev.logs?.action_logs || []).slice(0, limit);
   }
 }
 
 export const deviceRepository = new DeviceRepository();
 export default deviceRepository;
-

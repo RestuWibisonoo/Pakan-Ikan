@@ -64,10 +64,10 @@ app.use((req, res) => {
 // Central Error Handler
 app.use(errorHandler);
 
-// Jalankan Server jika file ini dieksekusi secara langsung
+// Jalankan Server jika file ini dieksekusi secara langsung (bind ke loopback 127.0.0.1)
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(config.port, () => {
-    console.log(`[Pakan Ikan Server] Berjalan di port ${config.port} (${config.nodeEnv})`);
+  app.listen(config.port, config.host, () => {
+    console.log(`[Pakan Ikan Server] Berjalan secara internal di http://${config.host}:${config.port} (${config.nodeEnv})`);
     console.log(`[Pakan Ikan Server] Frontend target URL: ${config.frontendUrl}`);
   });
 }

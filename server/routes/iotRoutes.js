@@ -1,6 +1,7 @@
 import express from 'express';
 import requireAuth from '../middleware/authMiddleware.js';
 import requireDeviceAuth from '../middleware/deviceAuthMiddleware.js';
+import { actuatorRateLimiter, telemetryRateLimiter } from '../middleware/rateLimiter.js';
 import {
   getStatus,
   triggerFeed,
@@ -28,9 +29,9 @@ const router = express.Router();
 // Status sistem & telemetri terkini
 router.get('/status', requireAuth, getStatus);
 
-// Kontrol aksi manual
-router.post('/commands/feed', requireAuth, triggerFeed);
-router.post('/commands/pump', requireAuth, triggerPump);
+// Kontrol aksi manual (diproteksi rate limiter pencegah kerusakan aktuator & overdosis pakan)
+router.post('/commands/feed', requireAuth, actuatorRateLimiter, triggerFeed);
+router.post('/commands/pump', requireAuth, actuatorRateLimiter, triggerPump);
 
 // Manajemen jadwal pakan
 router.get('/schedules', requireAuth, getSchedules);
@@ -50,8 +51,8 @@ router.get('/logs/actions', requireAuth, getActionLogs);
 // ESP32 Hardware Endpoints (Device Secret Header X-Device-Key Required)
 // ==============================================================================
 
-// Kirim data telemetri sensor pH dan status perangkat dari ESP32
-router.post('/device/telemetry', requireDeviceAuth, postDeviceTelemetry);
+// Kirim data telemetri sensor pH dan status perangkat dari ESP32 (diproteksi telemetry rate limiter)
+router.post('/device/telemetry', requireDeviceAuth, telemetryRateLimiter, postDeviceTelemetry);
 
 // Ambil perintah pending untuk dieksekusi servo/pompa
 router.get('/device/commands/pending', requireDeviceAuth, getPendingCommand);

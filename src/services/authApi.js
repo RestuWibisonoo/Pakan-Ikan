@@ -8,9 +8,16 @@
 
 import { auth } from '../firebase/config';
 
-const API_BASE_URL = (
-  import.meta.env.VITE_AUTH_API_URL || 'http://localhost:5000'
-).replace(/\/+$/, '');
+const getApiBaseUrl = () => {
+  const explicitUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_AUTH_API_URL;
+  if (explicitUrl !== undefined) {
+    return explicitUrl.replace(/\/+$/, '');
+  }
+  // Mode produksi single-origin (Nginx reverse proxy): gunakan path relatif ''
+  return import.meta.env.PROD ? '' : 'http://localhost:5000';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const REQUEST_TIMEOUT_MS = 6000;
 

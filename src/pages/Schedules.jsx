@@ -1,16 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Clock } from 'lucide-react';
+import { Plus, Trash2, Clock, Loader2 } from 'lucide-react';
 import iotApi from '../services/iotApi';
 
 export default function Schedules() {
-  const [schedules, setSchedules] = useState([
-    { id: 'sched_1', time: '07:00', label: 'Pagi', active: true },
-    { id: 'sched_2', time: '17:00', label: 'Sore', active: true },
-  ]);
-  const [loading, setLoading] = useState(false);
+  const [schedules, setSchedules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newTime, setNewTime] = useState('12:00');
-  const [newLabel, setNewLabel] = useState('Siang');
+  const [newTime, setNewTime] = useState('07:00');
+  const [newLabel, setNewLabel] = useState('Pagi');
 
   // Ambil jadwal pakan dari backend
   useEffect(() => {
@@ -18,12 +16,15 @@ export default function Schedules() {
     iotApi
       .getSchedules()
       .then((res) => {
-        if (isMounted && res?.data && Array.isArray(res.data) && res.data.length > 0) {
-          setSchedules(res.data);
+        if (isMounted) {
+          setSchedules(res?.data && Array.isArray(res.data) ? res.data : []);
         }
       })
-      .catch(() => {
-        // Fallback ke state lokal
+      .catch((err) => {
+        console.warn('Gagal memuat jadwal dari backend:', err.message);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
       });
 
     return () => {
@@ -36,6 +37,7 @@ export default function Schedules() {
     if (!target) return;
 
     const nextActive = !target.active;
+    // Optimistic UI update
     setSchedules((prev) =>
       prev.map((s) => (s.id === id ? { ...s, active: nextActive } : s))
     );
@@ -43,18 +45,26 @@ export default function Schedules() {
     try {
       await iotApi.updateSchedule(id, { ...target, active: nextActive });
     } catch (err) {
-      console.warn('Gagal sinkronisasi update jadwal:', err);
+      // Rollback jika request backend gagal
+      setSchedules((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, active: target.active } : s))
+      );
+      alert(`Gagal memperbarui status jadwal: ${err.message || 'Koneksi gagal.'}`);
     }
   };
 
   const deleteSchedule = async (id) => {
-    if (confirm('Hapus jadwal ini?')) {
-      setSchedules((prev) => prev.filter((s) => s.id !== id));
-      try {
-        await iotApi.deleteSchedule(id);
-      } catch (err) {
-        console.warn('Gagal menghapus jadwal dari backend:', err);
-      }
+    if (!confirm('Hapus jadwal ini?')) return;
+
+    const previousSchedules = [...schedules];
+    setSchedules((prev) => prev.filter((s) => s.id !== id));
+
+    try {
+      await iotApi.deleteSchedule(id);
+    } catch (err) {
+      // Rollback jika request backend gagal
+      setSchedules(previousSchedules);
+      alert(`Gagal menghapus jadwal: ${err.message || 'Koneksi gagal.'}`);
     }
   };
 
@@ -62,7 +72,7 @@ export default function Schedules() {
     e.preventDefault();
     if (!newTime) return;
 
-    setLoading(true);
+    setSubmitting(true);
     const newEntry = {
       time: newTime,
       label: newLabel || 'Pakan',
@@ -74,14 +84,12 @@ export default function Schedules() {
       const created = res?.data || { ...newEntry, id: `sched_${Date.now()}` };
       setSchedules((prev) => [...prev, created]);
       setShowAddForm(false);
-      setNewTime('12:00');
-      setNewLabel('Siang');
-    } catch {
-      // Fallback lokal
-      setSchedules((prev) => [...prev, { ...newEntry, id: `sched_${Date.now()}` }]);
-      setShowAddForm(false);
+      setNewTime('07:00');
+      setNewLabel('Pagi');
+    } catch (err) {
+      alert(`Gagal menambahkan jadwal: ${err.message || 'Koneksi gagal.'}`);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -129,7 +137,7 @@ export default function Schedules() {
               <input
                 type="text"
                 className="input-field"
-                placeholder="Contoh: Siang / Malam"
+                placeholder="Contoh: Pagi / Sore"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
               />
@@ -140,53 +148,62 @@ export default function Schedules() {
             type="submit"
             className="btn btn-primary"
             style={{ width: '100%', padding: '10px' }}
-            disabled={loading}
+            disabled={submitting}
           >
-            {loading ? 'Menyimpan...' : 'Simpan Jadwal'}
+            {submitting ? 'Menyimpan...' : 'Simpan Jadwal'}
           </button>
         </form>
       )}
 
       <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-        {schedules.map((schedule) => (
-          <div key={schedule.id} className="list-item">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'Outfit' }}>{schedule.time}</div>
-                <div className="item-subtitle">{schedule.label}</div>
+        {loading ? (
+          <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Loader2 size={24} color="var(--primary)" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px' }} />
+            <div>Memuat jadwal pakan...</div>
+          </div>
+        ) : schedules.length > 0 ? (
+          schedules.map((schedule) => (
+            <div key={schedule.id} className="list-item">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'Outfit' }}>{schedule.time}</div>
+                  <div className="item-subtitle">{schedule.label}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={schedule.active}
+                    onChange={() => toggleSchedule(schedule.id)}
+                  />
+                  <span className="slider"></span>
+                </label>
+
+                <button
+                  onClick={() => deleteSchedule(schedule.id)}
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }}
+                  aria-label="Hapus Jadwal"
+                >
+                  <Trash2 size={20} />
+                </button>
               </div>
             </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={schedule.active}
-                  onChange={() => toggleSchedule(schedule.id)}
-                />
-                <span className="slider"></span>
-              </label>
-
-              <button
-                onClick={() => deleteSchedule(schedule.id)}
-                style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }}
-                aria-label="Hapus Jadwal"
-              >
-                <Trash2 size={20} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {schedules.length === 0 && (
-          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            Belum ada jadwal pakan
+          ))
+        ) : (
+          <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '0 0 8px 0', fontWeight: 600 }}>Belum ada jadwal pakan</p>
+            <p style={{ margin: 0, fontSize: '0.8rem' }}>
+              Klik tombol &ldquo;Tambah&rdquo; di atas untuk mengatur waktu pemberian pakan otomatis.
+            </p>
           </div>
         )}
       </div>
 
       <div style={{ padding: '16px', background: 'rgba(14, 165, 233, 0.1)', borderRadius: '12px', fontSize: '0.875rem', marginTop: '16px' }}>
         <p style={{ margin: 0 }}>
-          <strong>Info:</strong> Jadwal otomatis tersinkronisasi ke perangkat ESP32 melalui RTC/NTP time.
+          <strong>Info:</strong> Jadwal otomatis tersinkronisasi ke perangkat ESP32 melalui Realtime Database & waktu RTC/NTP.
         </p>
       </div>
     </>
