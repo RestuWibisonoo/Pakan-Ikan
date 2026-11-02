@@ -47,3 +47,4 @@ SyslogIdentifier=pakan-ikan-api
 
 [Install]
 WantedBy=multi-user.target
+

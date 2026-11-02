@@ -1,0 +1,115 @@
+# ==============================================================================
+# Pakan Ikan - Nginx Reverse Proxy Configuration (Actual VM Deployment)
+# ==============================================================================
+# Server: Ubuntu Server 22.04.5 LTS (Hostname: pakan-ikan, IP: 192.168.1.115)
+# Target File on VM: /etc/nginx/sites-available/pakan-ikan
+# Symlink on VM:     /etc/nginx/sites-enabled/pakan-ikan
+#
+# Topology:
+# Internet -> Cloudflare Edge (https://pakan-ikan.my.id)
+#   -> Cloudflare Tunnel Connector (Berjalan pada VM Lain di LAN)
+#   -> http://192.168.1.115:80 (Nginx pada Application VM ini)
+#       ├── /                 -> React SPA Production Build (/var/www/pakan-ikan/dist)
+#       └── /api/*            -> Reverse Proxy Internal ke Loopback (127.0.0.1:5000)
+#                                 - /api/health
+#                                 - /api/auth/*
+#                                 - /api/v1/*
+#
+# Catatan Keamanan:
+# - Cloudflared connector TIDAK berjalan di VM ini (berada di VM lain).
+# - Port 5000 Express terikat strictly ke loopback (127.0.0.1) dan TIDAK dibuka ke LAN/publik.
+# ==============================================================================
+
+upstream pakan_ikan_backend {
+    server 127.0.0.1:5000;
+    keepalive 32;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name pakan-ikan.my.id 192.168.1.115 localhost;
+
+    # Root direktori untuk build produksi Vite React SPA
+    root /var/www/pakan-ikan/dist;
+    index index.html;
+
+    # Batas ukuran payload request (telemetri & perintah)
+    client_max_body_size 10M;
+
+    # Gzip Compression untuk efisiensi RAM 2GB dan bandwidth jaringan
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        application/json
+        application/javascript
+        application/xml
+        application/xml+rss
+        image/svg+xml;
+
+    # Security Headers dasar
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # --------------------------------------------------------------------------
+    # 1. API Reverse Proxy -> Loopback Express Backend (127.0.0.1:5000)
+    # --------------------------------------------------------------------------
+    location /api/ {
+        proxy_pass http://pakan_ikan_backend;
+        proxy_http_version 1.1;
+
+        # WebSocket / Connection upgrade support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+
+        # Header identitas request dari Cloudflare Connector VM & Client
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Header autentikasi & kredensial ESP32
+        proxy_set_header Authorization $http_authorization;
+        proxy_pass_header Authorization;
+        proxy_pass_header X-Device-Key;
+        proxy_pass_header X-Device-Id;
+
+        # Timeouts dan buffer
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # --------------------------------------------------------------------------
+    # 2. Static Asset Caching (Aset ber-hash unik dari build Vite)
+    # --------------------------------------------------------------------------
+    location ~* \.(?:css|js|jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|woff2|woff)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # --------------------------------------------------------------------------
+    # 3. Frontend Single Page Application (SPA) Routing Fallback
+    # --------------------------------------------------------------------------
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # --------------------------------------------------------------------------
+    # 4. Error Pages Fallback
+    # --------------------------------------------------------------------------
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

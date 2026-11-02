@@ -93,3 +93,31 @@ Dokumen ini merupakan catatan riwayat pengembangan terpusat (*central developmen
 - **Pekerjaan Tersisa (*Remaining Work*):** Pemasangan service account key di VM saat proses deployment server fisik/cloud.
 - **Laporan Detail:** [04-integration-security-reliability-audit.md](./reports/04-integration-security-reliability-audit.md)
 
+---
+
+### [Tugas 05] Adaptasi Arsitektur & Runbook Deployment Berdasarkan Inventaris Server Aktual
+- **Tanggal:** 2026-11-02
+- **Objektif:** Menyesuaikan seluruh dokumentasi arsitektur dan runbook deployment dengan kondisi server riil Ubuntu Server 22.04 LTS (KVM), Node.js 22.22.3, Nginx 1.18.0, 2 GB RAM, pencadangan website eksisting di `/var/www/pakan-ikan`, pembaruan `/etc/nginx/sites-available/pakan-ikan`, serta penanganan Cloudflare Tunnel yang berjalan pada VM eksternal di LAN.
+- **Status Implementasi:** Completed
+- **Keputusan & Fitur Utama:**
+  - **Inventaris Riil:** Disesuaikan dengan OS Ubuntu 22.04 LTS, Node 22.22.3 (tanpa instalasi ulang), 2 GB RAM + 2 GB Swap, dan disk root 15 GB (tersedia ~6.8 GB).
+  - **Pencadangan Total Website Lama:** Prosedur backup `/var/www/pakan-ikan` ke direktori terpisah dengan timestamp sebelum migrasi berkas, dan larangan menghapus direktori backup sampai terverifikasi.
+  - **Cloudflare Tunnel Eksternal:** Menegaskan aturan bahwa daemon `cloudflared` berjalan pada VM lain di LAN yang mem-forward ke `http://192.168.1.115:80`. Tidak ada instalasi `cloudflared` lokal.
+  - **Firewall Policy:** UFW dipertahankan `inactive` untuk menjamin lalu lintas SSH dan akses dari IP Cloudflare connector VM tidak terputus.
+  - **Nginx Reverse Proxy:** Disediakan berkas `deploy/nginx/pakan-ikan` sesuai nama situs riil di `/etc/nginx/sites-available/pakan-ikan` yang mengarahkan root ke `/var/www/pakan-ikan/dist` dan mem-proxy `/api/*` ke loopback `127.0.0.1:5000`.
+  - **Systemd Service:** Layanan `pakan-ikan-api.service` dikonfigurasi untuk auto-restart dan sandbox keamanan.
+  - **Prosedur Rollback:** Prosedur pemulihan cepat ke website lama tanpa downtime dalam <60 detik.
+- **Berkas Utama:**
+  - `docs/deployment/single-vm-architecture.md` (pembaruan menyeluruh)
+  - `deploy/nginx/pakan-ikan` (berkas konfigurasi Nginx target server)
+  - `deploy/nginx/pakan-ikan.conf` (pembaruan mirror)
+  - `docs/reports/05-production-deployment-actual-inventory.md` (laporan formal)
+- **Pengujian & Hasil:**
+  - `npm test` di `server/`: 51/51 tes lulus 100%.
+  - `npm run lint`: 0 errors, 0 warnings.
+  - `npm run build`: Sukses (210ms).
+- **Isu Diketahui (*Known Issues*):** Kredensial Firebase service account dan app password SMTP akan dipasang saat eksekusi langsung di server `192.168.1.115`.
+- **Pekerjaan Tersisa (*Remaining Work*):** Eksekusi perintah runbook langkah-demi-langkah pada terminal SSH server `192.168.1.115`.
+- **Laporan Detail:** [05-production-deployment-actual-inventory.md](./reports/05-production-deployment-actual-inventory.md)
+
+

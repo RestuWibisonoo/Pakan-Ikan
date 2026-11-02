@@ -1,276 +1,298 @@
-# Panduan Arsitektur & Deployment Single-VM — Pakan Ikan
+# Panduan Arsitektur & Deployment Single-VM — Pakan Ikan (Server Inventory Aktual)
 
-Dokumen ini mendokumentasikan spesifikasi teknis arsitektur single-VM (Virtual Machine tunggal) untuk menjalankan aplikasi web otomasi akuakultur **Pakan Ikan** di lingkungan produksi menggunakan Nginx dan Node.js Express.
+Dokumen ini adalah spesifikasi teknis dan panduan operasional (*deployment runbook*) resmi untuk implementasi sistem otomasi akuakultur **Pakan Ikan** pada server produksi aktual.
 
 ---
 
-## 1. Parameter Infrastruktur & Jaringan
+## 1. Inventaris Server & Infrastruktur Aktual
 
-| Parameter | Nilai / Konfigurasi | Keterangan |
+Berdasarkan hasil audit lingkungan server fisik/virtual per 2026-11-02:
+
+| Parameter | Spesifikasi Aktual | Keterangan Operasional |
 |---|---|---|
-| **Domain Publik** | `pakan-ikan.my.id` | Dikelola melalui Cloudflare DNS & Tunnel |
-| **IP Internal VM** | `192.168.1.115` | Alamat IP lokal server di jaringan internal |
-| **Ingress Cloudflare Tunnel** | `http://192.168.1.115:80` | Forwarding traffic publik HTTPS langsung ke port 80 VM |
-| **Web Server / Reverse Proxy** | Nginx (Port 80) | Menyajikan aset statis SPA & reverse proxy API |
-| **Backend API Service** | Node.js Express (Port 5000) | Terikat ketat pada interface loopback `127.0.0.1:5000` |
-| **Frontend Static Files** | `/var/www/pakan-ikan/dist` | Hasil build produksi Vite React (`npm run build`) |
-| **Backend Directory** | `/var/www/pakan-ikan/server` | Node.js Express backend |
-| **Service Manager** | Systemd (`pakan-ikan-api.service`) | Daemon lifecycle, auto-restart, sandbox isolasi |
-| **Identity Provider** | Firebase Authentication | Proyek `pakan-ikan-4c18e` (Email/Password) |
-| **Database Operasional** | Firebase Realtime Database | `https://pakan-ikan-4c18e-default-rtdb.asia-southeast1.firebasedatabase.app` |
+| **Sistem Operasi** | Ubuntu Server 22.04.5 LTS | 64-bit Linux Server |
+| **Kernel** | 5.15.0-202-generic | Kernel standar Ubuntu LTS |
+| **Virtualisasi** | KVM (Kernel-based Virtual Machine) | Hypervisor level-1 |
+| **Hostname** | `pakan-ikan` | Nama host VM aplikasi |
+| **Alamat IP Internal** | `192.168.1.115` | Terhubung ke LAN internal |
+| **Domain Publik** | `pakan-ikan.my.id` | Dikelola via Cloudflare DNS & Tunnel |
+| **RAM & Swap** | 2 GB RAM + 2 GB Swap | Total memori virtual 4 GB (cukup untuk build & runtime) |
+| **Penyimpanan Virtual** | 32 GB Virtual Disk | LVM Partitioning |
+| **Root Filesystem (`/`)** | 15 GB (tersedia ~6.8 GB) | Ruang kosong sangat mencukupi untuk Node & build |
+| **LVM Volume Group** | ~15 GB Ruang Bebas (*unallocated*) | Dapat diperluas sewaktu-waktu jika diperlukan |
+| **Node.js** | **v22.22.3** (Sudah terpasang) | **JANGAN diinstal ulang / ditimpa** |
+| **npm** | **v10.9.8** (Sudah terpasang) | Paket manajer resmi bawaan Node 22 |
+| **Web Server** | **Nginx v1.18.0** (Aktif & Berjalan) | Reverse proxy port 80 |
+| **Version Control** | **Git v2.34.1** (Sudah terpasang) | Penarik kode dari repository GitHub |
+| **Firewall (UFW)** | `inactive` (Nonaktif) | **Pertahankan nonaktif** untuk menjaga akses konektor |
 
 ---
 
-## 2. Diagram Alur Arsitektur
+## 2. Topologi Jaringan & Cloudflare Tunnel
 
 ```
-Internet (Pengguna & ESP32)
-         │
-         │  HTTPS: https://pakan-ikan.my.id
-         ▼
-  ┌────────────────────────────────────────────────────────┐
-  │                   Cloudflare Edge                      │
-  │     - Enkripsi SSL/TLS publik                          │
-  │     - Perlindungan DDoS & WAF                          │
-  └──────────────────────────┬─────────────────────────────┘
-                             │
-                             │ Cloudflare Tunnel (Inbound)
-                             ▼
-  ┌────────────────────────────────────────────────────────┐
-  │            Host Virtual Machine (192.168.1.115)        │
-  │                                                        │
-  │  Nginx Reverse Proxy (:80)                             │
-  │  ├── GET /                ─► Static Build SPA React    │
-  │  │                           (/var/www/pakan-ikan/dist)│
-  │  │                                                     │
-  │  └── /api/*               ─► Reverse Proxy Loopback    │
-  │      ├── /api/health                                   │
-  │      ├── /api/auth/*                                   │
-  │      └── /api/v1/*                                     │
-  │                                    │                   │
-  │                                    ▼ (Internal Only)   │
-  │                      Node.js Express Backend           │
-  │                      (127.0.0.1:5000)                  │
-  │                      Kelolaan Systemd: pakan-ikan-api  │
-  └──────────────────────────┬─────────────────────────────┘
-                             │
-                             │ Firebase Admin SDK / REST
-                             ▼
-  ┌────────────────────────────────────────────────────────┐
-  │                 Firebase Cloud Services                │
-  │  ├── Firebase Authentication (Validasi ID Token)       │
-  │  └── Firebase Realtime Database (asia-southeast1)      │
-  └────────────────────────────────────────────────────────┘
+Pengguna Internet & ESP32
+          │
+          │ HTTPS (https://pakan-ikan.my.id)
+          ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │                    Cloudflare Global Edge                   │
+   │           - Enkripsi SSL/TLS publik gratis                  │
+   │           - Perlindungan DDoS & Web Application Firewall    │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  │ Encrypted Inbound Tunnel
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │           Cloudflare Connector VM (VM Lain di LAN)          │
+   │           - Menjalankan daemon 'cloudflared'                │
+   │           - Published Application: http://192.168.1.115:80  │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  │ HTTP LAN Inbound (Port 80)
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │       Application VM: 'pakan-ikan' (IP: 192.168.1.115)       │
+   │                                                             │
+   │  Nginx Reverse Proxy (:80)                                  │
+   │  ├── /                ─► Static React SPA Build             │
+   │  │                       (/var/www/pakan-ikan/dist)         │
+   │  │                                                          │
+   │  └── /api/*           ─► Proxy Internal ke Loopback         │
+   │      ├── /api/health                                        │
+   │      ├── /api/auth/*                                        │
+   │      └── /api/v1/*                                          │
+   │                                  │                          │
+   │                                  ▼ (127.0.0.1:5000)         │
+   │                    Node.js Express Backend Daemon           │
+   │                    Systemd: pakan-ikan-api.service          │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  │ REST / Admin SDK
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │                   Firebase Cloud Services                   │
+   │  ├── Firebase Authentication (ID Token & User Lifecycle)    │
+   │  └── Firebase Realtime Database (asia-southeast1)           │
+   └─────────────────────────────────────────────────────────────┘
 ```
 
 > [!IMPORTANT]
-> **Prinsip Keamanan Port 5000:** Port 5000 Express **tidak boleh dibuka** ke firewall publik atau subnet eksternal. Node.js hanya mendengarkan loopback interface `127.0.0.1` (`HOST=127.0.0.1`), sehingga semua lalu lintas dari internet wajib melewati Nginx untuk verifikasi header, sanitasi, dan mitigasi DoS.
+> **Aturan Mutlak Cloudflare Tunnel:**
+> 1. Connector Cloudflare Tunnel **TIDAK** berjalan di Application VM ini (berada pada VM lain di subnet LAN).
+> 2. **JANGAN menginstal `cloudflared`** di VM `192.168.1.115`.
+> 3. **JANGAN membuat tunnel baru** atau mengubah konfigurasi Published Application di Cloudflare Zero Trust.
+> 4. Pastikan port 80 pada Application VM selalu menerima koneksi HTTP dari IP VM konektor Cloudflare.
+
+> [!WARNING]
+> **Kebijakan Port & Firewall:**
+> - UFW saat ini berstatus `inactive`. **JANGAN mengaktifkan UFW** sebelum IP lokal VM konektor Cloudflare dan jalur SSH (`port 22`) didaftarkan ke allowlist, agar tidak memutus jalur akses publik dan administratif.
+> - Port 5000 Express backend **hanya** mendengarkan interface internal loopback `127.0.0.1` (`HOST=127.0.0.1`). Port 5000 **tidak boleh** diekspos ke jaringan LAN maupun publik.
 
 ---
 
-## 3. Konfigurasi Nginx (`deploy/nginx/pakan-ikan.conf`)
+## 3. Kondisi Deployment Eksisting & Strategi Migrasi Aman
 
-Konfigurasi Nginx terletak di [`deploy/nginx/pakan-ikan.conf`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/deploy/nginx/pakan-ikan.conf).
+Di server saat ini:
+- Direktori aplikasi: `/var/www/pakan-ikan` berisi file build website lama (`index.html`, `favicon.svg`, `icons.svg`, `assets/`).
+- Konfigurasi Nginx: `/etc/nginx/sites-available/pakan-ikan` (disymlink ke `/etc/nginx/sites-enabled/pakan-ikan`).
+- Direktori root Nginx lama: `/var/www/pakan-ikan`.
 
-### Fitur Utama:
-1. **Single-Origin Routing**: Seluruh request frontend dan backend berjalan di bawah origin yang sama (`https://pakan-ikan.my.id`). Frontend memanggil endpoint API secara relatif (`/api/...`), meniadakan masalah CORS (Cross-Origin Resource Sharing).
-2. **SPA Fallback Routing**: Direktif `try_files $uri $uri/ /index.html;` memungkinkan routing client-side React Router (v7) bekerja mulus saat refresh halaman tanpa error 404.
-3. **Penyaluran Header Aman**: Menyertakan `X-Real-IP`, `X-Forwarded-For`, `Authorization`, `X-Device-Key`, dan `X-Device-Id`.
-4. **Caching Aset Statis**: File statis JavaScript, CSS, dan gambar yang di-hash diberi cache browser selama 1 tahun (`Cache-Control: public, immutable`).
-5. **Kompresi Gzip**: Mengurangi ukuran transfer payload untuk koneksi internet berkecepatan rendah.
-
----
-
-## 4. Konfigurasi Systemd (`deploy/systemd/pakan-ikan-api.service`)
-
-Konfigurasi service terletak di [`deploy/systemd/pakan-ikan-api.service`](file:///Users/restuwibisono/Documents/Coding/Pakan-Ikan/deploy/systemd/pakan-ikan-api.service).
-
-### Fitur Hardening & Ketahanan:
-1. **Auto-Restart**: `Restart=always` dengan jeda `RestartSec=5` memastikan backend langsung pulih otomatis jika terjadi crash atau restart OS VM.
-2. **Isolasi Keamanan (Sandbox)**:
-   - `NoNewPrivileges=true`: Mencegah eskalasi hak akses.
-   - `ProtectSystem=full`: Menjadikan direktori sistem (`/usr`, `/boot`, `/etc`) read-only bagi proses backend.
-   - `ProtectHome=true`: Mengunci akses proses backend ke direktori `/home`.
-   - `PrivateTmp=true`: Mengisolasi direktori `/tmp` proses dari pengguna lain.
-3. **Resource Limits**: `LimitNOFILE=65535` untuk menangani banyak koneksi konkurensi dari sensor IoT ESP32.
+### Strategi Migrasi Tanpa Downtime & Nol Risiko Kehilangan Data:
+1. **Pencadangan Total (*Full Backup*):** Sebelum menyentuh berkas apa pun, seluruh isi `/var/www/pakan-ikan` dicadangkan ke `/var/www/pakan-ikan_legacy_<timestamp>`.
+2. **Pertahankan Backup:** Direktori backup lama **tidak boleh dihapus** sampai migrasi terbukti 100% berjalan normal.
+3. **Penyajian dari Subdirektori `dist`:** Nginx diperbarui agar melayani file statis dari `/var/www/pakan-ikan/dist`, sementara Node.js Express backend berjalan dari `/var/www/pakan-ikan/server`.
 
 ---
 
-## 5. Panduan Instalasi & Deployment di VM
+## 4. Panduan Eksekusi Deployment di VM (Runbook Langkah-demi-Langkah)
 
-### Langkah 1: Persiapan Direktori & Clone Repository
+Jalankan perintah berikut melalui sesi SSH pada server `192.168.1.115`:
+
+### Langkah 1: Backup Website Eksisting
 ```bash
-# Buat direktori aplikasi
-sudo mkdir -p /var/www/pakan-ikan
-sudo chown -R $USER:$USER /var/www/pakan-ikan
+# 1. Catat timestamp dan buat salinan lengkap website lama
+BACKUP_DIR="/var/www/pakan-ikan_legacy_$(date +%Y%m%d_%H%M%S)"
+sudo cp -a /var/www/pakan-ikan "$BACKUP_DIR"
 
-# Masuk ke direktori
-cd /var/www/pakan-ikan
-
-# Clone atau pull pembaruan kode
-git clone https://github.com/RestuWibisonoo/Pakan-Ikan.git .
+# 2. Verifikasi backup berhasil terbentuk
+ls -la "$BACKUP_DIR"
 ```
 
-### Langkah 2: Build Static Frontend
+### Langkah 2: Pengambilan Kode Sumber Repositori Baru
+Karena `/var/www/pakan-ikan` sudah ada, kita gunakan pendekatan *clean checkout*:
 ```bash
-# Install dependencies frontend
+# Pindahkan direktori lama sementara atau bersihkan untuk clone
+sudo mv /var/www/pakan-ikan /var/www/pakan-ikan_temp
+
+# Clone repositori Pakan-Ikan dari GitHub
+sudo git clone https://github.com/RestuWibisonoo/Pakan-Ikan.git /var/www/pakan-ikan
+
+# Atur kepemilikan direktori ke pengguna saat ini
+sudo chown -R $USER:$USER /var/www/pakan-ikan
+```
+
+### Langkah 3: Build Frontend React SPA
+```bash
+cd /var/www/pakan-ikan
+
+# Install dependensi frontend (Node.js 22 & npm 10 sudah siap)
 npm install
 
-# Buat build produksi
+# Jalankan build produksi Vite
 npm run build
 
-# Verifikasi folder dist berhasil terbentuk
+# Verifikasi folder dist berhasil terbentuk dengan index.html dan assets/
 ls -la /var/www/pakan-ikan/dist
 ```
 
-### Langkah 3: Setup Backend Node.js
+### Langkah 4: Setup Backend Express Node.js & Kredensial
 ```bash
 cd /var/www/pakan-ikan/server
 
-# Install dependencies backend
+# Install dependensi produksi backend saja (hemat memori dan disk)
 npm install --omit=dev
 
-# Buat file konfigurasi environment produksi
+# Buat berkas environment produksi
 cp .env.example .env
 nano .env
 ```
 
-Pastikan variabel environment backend terisi dengan benar:
+Pastikan konfigurasi `.env` pada server berisi:
 ```env
+# ==============================================================================
+# Pakan Ikan Server - Environment Produksi VM 192.168.1.115
+# ==============================================================================
 NODE_ENV=production
 HOST=127.0.0.1
 PORT=5000
 FRONTEND_URL=https://pakan-ikan.my.id
 CORS_ORIGIN=https://pakan-ikan.my.id
 
-# Firebase Production
+# Firebase Production (Project pakan-ikan-4c18e)
 FIREBASE_PROJECT_ID=pakan-ikan-4c18e
 FIREBASE_API_KEY=AIzaSyDO4JXKcHrTcufS9LavNMLGhpwJxYbdUP8
 FIREBASE_DATABASE_URL=https://pakan-ikan-4c18e-default-rtdb.asia-southeast1.firebasedatabase.app
 FIREBASE_SERVICE_ACCOUNT_PATH=/var/www/pakan-ikan/server/serviceAccountKey.json
 
-# ESP32 Shared Key
+# ESP32 Shared Key Header
 DEVICE_API_KEY=pakan-ikan-esp32-secret-2026
 DEFAULT_DEVICE_ID=fish-feeder-001
 
-# SMTP Email
+# SMTP Email (Gmail App Password)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=katasandi.pakanikan@gmail.com
-SMTP_PASS=your-gmail-app-password
+SMTP_PASS=ganti-dengan-app-password-16-digit
 SMTP_FROM_NAME=Pakan Ikan
 SMTP_FROM_EMAIL=katasandi.pakanikan@gmail.com
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MINUTES=15
+RATE_LIMIT_MAX_REQUESTS=100
 ```
 
-### Langkah 4: Pasang Konfigurasi Systemd
-```bash
-# Salin service unit ke systemd
-sudo cp /var/www/pakan-ikan/deploy/systemd/pakan-ikan-api.service /etc/systemd/system/
+> [!IMPORTANT]
+> Letakkan file `serviceAccountKey.json` dari Firebase Console secara aman di `/var/www/pakan-ikan/server/serviceAccountKey.json`:
+> ```bash
+> chmod 600 /var/www/pakan-ikan/server/serviceAccountKey.json
+> ```
 
-# Berikan hak kepemilikan folder server ke user service (misal www-data)
+### Langkah 5: Pemasangan Systemd Service Backend
+```bash
+# 1. Berikan kepemilikan folder server ke user service www-data
 sudo chown -R www-data:www-data /var/www/pakan-ikan/server
 
-# Muat ulang systemd daemon
-sudo systemctl daemon-reload
+# 2. Pasang unit file systemd
+sudo cp /var/www/pakan-ikan/deploy/systemd/pakan-ikan-api.service /etc/systemd/system/pakan-ikan-api.service
 
-# Aktifkan dan jalankan service backend
+# 3. Reload daemon dan jalankan service
+sudo systemctl daemon-reload
 sudo systemctl enable --now pakan-ikan-api
 
-# Periksa status service
+# 4. Periksa status dan pastikan berstatus 'active (running)'
 sudo systemctl status pakan-ikan-api
 ```
 
-### Langkah 5: Pasang Konfigurasi Nginx
+### Langkah 6: Pembaruan Konfigurasi Nginx
 ```bash
-# Berikan hak baca pada folder dist
+# 1. Pastikan izin baca pada file dist
 sudo chmod -R 755 /var/www/pakan-ikan/dist
 
-# Salin konfigurasi Nginx
-sudo cp /var/www/pakan-ikan/deploy/nginx/pakan-ikan.conf /etc/nginx/sites-available/pakan-ikan.conf
+# 2. Salin konfigurasi Nginx baru ke lokasi eksisting
+sudo cp /var/www/pakan-ikan/deploy/nginx/pakan-ikan /etc/nginx/sites-available/pakan-ikan
 
-# Aktifkan situs (buat symlink)
-sudo ln -sf /etc/nginx/sites-available/pakan-ikan.conf /etc/nginx/sites-enabled/
+# 3. Pastikan symlink aktif di sites-enabled
+sudo ln -sf /etc/nginx/sites-available/pakan-ikan /etc/nginx/sites-enabled/pakan-ikan
 
-# Hapus default jika ada
+# 4. Hapus site default Ubuntu jika masih aktif
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Uji sintaks Nginx
+# 5. Uji sintaks konfigurasi Nginx
 sudo nginx -t
 
-# Muat ulang Nginx
+# 6. Jika sintaks lolos, muat ulang Nginx tanpa memutus koneksi aktif
 sudo systemctl reload nginx
 ```
 
 ---
 
-## 6. Prosedur Verifikasi & Health Check
+## 5. Prosedur Pengujian & Verifikasi Menyeluruh
 
-Setelah deployment selesai, jalankan pengujian berikut dari terminal VM:
+Lakukan pengujian langsung dari shell server VM `pakan-ikan`:
 
-1. **Uji Loopback Backend Express:**
+1. **Uji Internal Loopback Express (Port 5000):**
    ```bash
    curl -i http://127.0.0.1:5000/api/health
    # Diharapkan: HTTP 200 OK dengan {"status":"ok","app":"Pakan Ikan"}
    ```
 
-2. **Uji Nginx Reverse Proxy ke Backend:**
+2. **Uji Reverse Proxy Nginx (Port 80 Lokal):**
    ```bash
    curl -i http://127.0.0.1/api/health
-   # Diharapkan: HTTP 200 OK diteruskan oleh Nginx
+   # Diharapkan: HTTP 200 OK diteruskan oleh Nginx ke port 5000
    ```
 
-3. **Uji Penyajian Frontend SPA oleh Nginx:**
+3. **Uji Penyajian Frontend SPA React oleh Nginx:**
    ```bash
    curl -i http://127.0.0.1/
-   # Diharapkan: HTTP 200 OK menyajikan file index.html
+   # Diharapkan: HTTP 200 OK dengan isi dokumen HTML React Pakan Ikan
    ```
 
-4. **Uji Single-Cycle ESP32 Simulator Melalui Reverse Proxy:**
+4. **Uji Siklus Penuh Simulator Virtual ESP32:**
    ```bash
    node /var/www/pakan-ikan/tools/device-simulator/simulator.js --url=http://127.0.0.1/api/v1 --mode=once
-   # Diharapkan: Siklus boot, telemetri, dan command polling berhasil
+   # Diharapkan: Boot sync, telemetri, command queueing, dan pelaporan selesai dengan sukses
    ```
 
-5. **Uji Domain Publik dari Eksternal:**
+5. **Uji Akses Publik via Cloudflare Tunnel (dari Luar Server):**
    ```bash
    curl -i https://pakan-ikan.my.id/api/health
-   # Diharapkan: HTTP 200 OK melewati Cloudflare Tunnel dan Nginx
+   # Diharapkan: HTTP 200 OK melalui Cloudflare Tunnel Connector VM
    ```
 
 ---
 
-## 7. Pemantauan & Logging Operasional
+## 6. Prosedur Rollback Cepat & Aman
 
-- **Log Backend Express (Systemd Journal):**
-  ```bash
-  sudo journalctl -u pakan-ikan-api -f
-  ```
-- **Log Akses & Error Nginx:**
-  ```bash
-  sudo tail -f /var/log/nginx/access.log
-  sudo tail -f /var/log/nginx/error.log
-  ```
-
----
-
-## 8. Prosedur Rollback Cepat
-
-Jika pembaruan kode menyebabkan kegagalan kritis di produksi:
+Jika dalam pengujian ditemukan kendala kritis pada sistem baru:
 
 ```bash
-cd /var/www/pakan-ikan
+# 1. Hentikan service backend baru
+sudo systemctl stop pakan-ikan-api
+sudo systemctl disable pakan-ikan-api
 
-# 1. Revert commit ke commit stabil sebelumnya
-git reset --hard HEAD~1
+# 2. Kembalikan root Nginx ke direktori website lama
+# Cukup edit /etc/nginx/sites-available/pakan-ikan dan ubah:
+# 'root /var/www/pakan-ikan/dist;' -> 'root /var/www/pakan-ikan_legacy_<timestamp>;'
+sudo sed -i 's|root /var/www/pakan-ikan/dist;|root /var/www/pakan-ikan_temp;|g' /etc/nginx/sites-available/pakan-ikan
 
-# 2. Re-build frontend
-npm run build
+# 3. Atau kembalikan seluruh direktori backup lama
+sudo rm -rf /var/www/pakan-ikan
+sudo cp -a /var/www/pakan-ikan_temp /var/www/pakan-ikan
 
-# 3. Restart backend service
-sudo systemctl restart pakan-ikan-api
-
-# 4. Verifikasi status
-sudo systemctl status pakan-ikan-api
-curl -i http://127.0.0.1/api/health
+# 4. Muat ulang Nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
+Website lama akan kembali aktif secara instan tanpa risiko kehilangan data.
