@@ -10,6 +10,10 @@ import { isSmtpConfigured } from './config/smtp.js';
 
 const app = express();
 
+// Beritahu Express bahwa ia berjalan di belakang reverse proxy Nginx
+// agar express-rate-limit dan logging dapat membaca IP asli client dari X-Forwarded-For
+app.set('trust proxy', 1);
+
 // Keamanan HTTP Headers
 app.use(helmet());
 
