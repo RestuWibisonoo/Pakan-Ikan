@@ -38,19 +38,19 @@ Sistem Pemberian Pakan Ikan Otomatis dengan Monitoring pH Air Secara Real-Time M
    ```
 
 2. Buka Firebase Console (https://console.firebase.google.com/):
-   - **Project:** `Pakan-Ikan`
+   - **Project:** `Pakan-Ikan` (Project ID: `pakan-ikan-4c18e`)
    - **Web App:** `Pakan Ikan Web`
    - Buka menu **Authentication** > **Sign-in method**, lalu aktifkan penyedia **Email/Password**.
 
-3. Masukkan konfigurasi ke dalam file `.env.local`:
+3. Masukkan konfigurasi resmi ke dalam file `.env.local`:
    ```env
-   VITE_FIREBASE_API_KEY=your_firebase_api_key_here
-   VITE_FIREBASE_AUTH_DOMAIN=pakan-ikan.firebaseapp.com
-   VITE_FIREBASE_PROJECT_ID=pakan-ikan
-   VITE_FIREBASE_STORAGE_BUCKET=pakan-ikan.appspot.com
-   VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
-   VITE_FIREBASE_APP_ID=your_firebase_app_id
-   VITE_FIREBASE_DATABASE_URL=https://pakan-ikan-default-rtdb.firebaseio.com
+   VITE_FIREBASE_API_KEY=your_api_key
+   VITE_FIREBASE_AUTH_DOMAIN=pakan-ikan-4c18e.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=pakan-ikan-4c18e
+   VITE_FIREBASE_STORAGE_BUCKET=pakan-ikan-4c18e.firebasestorage.app
+   VITE_FIREBASE_MESSAGING_SENDER_ID=995038198723
+   VITE_FIREBASE_APP_ID=1:995038198723:web:dfe5d757b5a1988eb51b76
+   VITE_FIREBASE_MEASUREMENT_ID=G-3J6XKTQNJP
    ```
 
 ---
@@ -76,3 +76,39 @@ Sistem Pemberian Pakan Ikan Otomatis dengan Monitoring pH Air Secara Real-Time M
    ```bash
    npm run build
    ```
+
+---
+
+## Layanan Email Autentikasi Kustom (Backend Express)
+
+Aplikasi **Pakan Ikan** dilengkapi dengan layanan backend terpisah di direktori `server/` untuk mengirimkan email verifikasi dan atur ulang kata sandi dengan template HTML responsif bernuansa aquatic (dark emerald green), tautan aksi kustom (`/auth/action`), dan integrasi Firebase Admin SDK + Nodemailer.
+
+### 1. Struktur Backend (`server/`)
+- `config/` - Konfigurasi Firebase Admin SDK, SMTP transport, dan aplikasi.
+- `controllers/` - Handler endpoint autentikasi (`sendVerification`, `resendVerification`, `sendPasswordReset`).
+- `middleware/` - Autentikasi token Firebase ID (`requireAuth`), rate limiting, dan error handling aman.
+- `routes/` - Definisi rute Express (`/api/auth/*`).
+- `services/` - Logika pembuatan link verifikasi/reset (`linkService`) dan pengiriman email (`emailService`).
+- `templates/` - Template email responsif HTML ber-branding Pakan Ikan.
+- `tests/` - Unit & integration test otomatis (`node --test`).
+
+### 2. Menjalankan Backend
+```bash
+# Masuk ke direktori server
+cd server
+
+# Salin konfigurasi environment
+cp .env.example .env
+
+# Jalankan dalam mode pengembangan
+npm run dev
+
+# Jalankan pengujian otomatis
+npm test
+```
+
+### 3. Keamanan & Mekanisme Failover
+- **Firebase ID Token Verification:** Endpoint verifikasi memvalidasi token otentikasi Firebase dan hanya mengirim email ke alamat email pengguna yang sah (tidak mempercayai body request).
+- **Anti-Enumeration:** Endpoint lupa kata sandi memberikan respons seragam untuk mencegah penyerang mengetahui apakah suatu email terdaftar.
+- **Failover Bawaan:** Jika backend belum berjalan atau kredensial service account belum diisi, frontend secara otomatis beralih menggunakan email bawaan Firebase Authentication client.
+- **Perlindungan Kredensial:** Seluruh token rahasia, private key Firebase Admin, dan password SMTP dilindungi oleh `.gitignore` dan tidak pernah terekspos ke frontend.

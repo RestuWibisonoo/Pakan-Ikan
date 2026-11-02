@@ -1,0 +1,71 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import config from './config/appConfig.js';
+import authRoutes from './routes/authRoutes.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { hasAdminCredentials } from './config/firebaseAdmin.js';
+import { isSmtpConfigured } from './config/smtp.js';
+
+const app = express();
+
+// Keamanan HTTP Headers
+app.use(helmet());
+
+// Konfigurasi CORS
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Izinkan request tanpa origin (seperti curl, mobile apps, server-to-server)
+      if (!origin) return callback(null, true);
+      if (config.corsOrigins.includes(origin) || config.isDev) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin tidak diizinkan oleh kebijakan CORS Pakan Ikan.'));
+    },
+    credentials: true,
+  })
+);
+
+// Body Parser dengan batasan ukuran aman
+app.use(express.json({ limit: '100kb' }));
+
+// Health Check Endpoint
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    app: 'Pakan Ikan Email Authentication Service',
+    projectId: config.firebase.projectId,
+    environment: config.nodeEnv,
+    services: {
+      firebaseAdmin: hasAdminCredentials() ? 'ready' : 'credentials-needed',
+      smtp: isSmtpConfigured() ? 'configured' : 'mock-mode',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Routing Autentikasi Kustom
+app.use('/api/auth', authRoutes);
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Endpoint '${req.originalUrl}' tidak ditemukan pada server Pakan Ikan.`,
+  });
+});
+
+// Central Error Handler
+app.use(errorHandler);
+
+// Jalankan Server jika file ini dieksekusi secara langsung
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(config.port, () => {
+    console.log(`[Pakan Ikan Server] Berjalan di port ${config.port} (${config.nodeEnv})`);
+    console.log(`[Pakan Ikan Server] Frontend target URL: ${config.frontendUrl}`);
+  });
+}
+
+export default app;
+

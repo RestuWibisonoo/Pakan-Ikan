@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import VerifyEmail from './pages/VerifyEmail';
+import AuthActionHandler from './pages/AuthActionHandler';
 
 function BottomNavigation() {
   const location = useLocation();
@@ -87,6 +88,7 @@ function AppRoutes() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/auth/action" element={<AuthActionHandler />} />
 
           {/* Protected Routes (Dashboard & Features) */}
           <Route

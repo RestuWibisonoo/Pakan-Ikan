@@ -12,6 +12,7 @@ import {
   browserSessionPersistence,
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import authApi from '../services/authApi';
 
 const AuthContext = createContext(null);
 
@@ -81,7 +82,13 @@ export function AuthProvider({ children }) {
     }
 
     if (credential.user) {
-      await sendEmailVerification(credential.user);
+      // Coba kirim via backend email kustom Pakan Ikan; failover ke Firebase bawaan jika backend belum siap
+      try {
+        await authApi.sendCustomVerificationEmail(credential.user);
+      } catch (backendErr) {
+        console.warn('Backend custom email tidak tersedia, beralih ke Firebase bawaan:', backendErr?.message || backendErr);
+        await sendEmailVerification(credential.user);
+      }
     }
 
     // Refresh state user lokal dengan displayName yang diperbarui
@@ -101,12 +108,22 @@ export function AuthProvider({ children }) {
     if (!currentUser) {
       throw new Error('Tidak ada pengguna yang sedang login.');
     }
-    await sendEmailVerification(currentUser);
+    try {
+      await authApi.resendCustomVerificationEmail(currentUser);
+    } catch (backendErr) {
+      console.warn('Backend custom email tidak tersedia, beralih ke Firebase bawaan:', backendErr?.message || backendErr);
+      await sendEmailVerification(currentUser);
+    }
   };
 
-  // Reset kata sandi melalui email bawaan Firebase
+  // Reset kata sandi melalui email kustom backend atau bawaan Firebase
   const resetPassword = async (email) => {
-    await sendPasswordResetEmail(auth, email);
+    try {
+      await authApi.sendCustomPasswordResetEmail(email);
+    } catch (backendErr) {
+      console.warn('Backend custom email tidak tersedia, beralih ke Firebase bawaan:', backendErr?.message || backendErr);
+      await sendPasswordResetEmail(auth, email);
+    }
   };
 
   // Logout dan bersihkan sesi Firebase
@@ -137,6 +154,7 @@ export function AuthProvider({ children }) {
     resetPassword,
     sendVerificationEmail,
     reloadUser,
+    checkBackendHealth: authApi.checkBackendHealth,
     getFriendlyErrorMessage: mapAuthErrorToIndonesian,
   };
 
