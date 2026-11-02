@@ -11,7 +11,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Controller: Kirim Email Verifikasi
  * Wajib terautentikasi melalui Firebase ID Token
  */
-export async function sendVerification(req, res, next) {
+export async function sendVerification(req, res) {
   try {
     // Keamanan: HANYA gunakan email dari token ID Firebase yang sudah divalidasi
     const authenticatedEmail = req.user?.email;
@@ -74,7 +74,12 @@ export async function sendVerification(req, res, next) {
         error: 'Layanan email kustom belum terkonfigurasi pada server.',
       });
     }
-    next(err);
+    console.error('[AuthController] Error sendVerification:', err.message);
+    return res.status(500).json({
+      success: false,
+      code: 'EMAIL_SEND_FAILED',
+      error: `Gagal mengirim email verifikasi: ${err.message}`,
+    });
   }
 }
 
@@ -82,7 +87,7 @@ export async function sendVerification(req, res, next) {
  * Controller: Kirim Ulang Email Verifikasi
  * Wajib terautentikasi melalui Firebase ID Token
  */
-export async function resendVerification(req, res, next) {
+export async function resendVerification(req, res) {
   try {
     const authenticatedEmail = req.user?.email;
     const authenticatedName = req.user?.name || '';
@@ -144,7 +149,12 @@ export async function resendVerification(req, res, next) {
         error: 'Layanan email kustom belum terkonfigurasi pada server.',
       });
     }
-    next(err);
+    console.error('[AuthController] Error resendVerification:', err.message);
+    return res.status(500).json({
+      success: false,
+      code: 'EMAIL_SEND_FAILED',
+      error: `Gagal mengirim ulang email verifikasi: ${err.message}`,
+    });
   }
 }
 

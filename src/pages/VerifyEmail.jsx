@@ -57,16 +57,15 @@ export default function VerifyEmail() {
 
     setResending(true);
     setErrorMessage('');
+    setInfoMessage('');
     try {
       await sendVerificationEmail();
       setInfoMessage('Tautan verifikasi baru berhasil dikirim ke email Anda.');
-      setResendCooldown(60); // Cooldown 60 detik
+      setResendCooldown(5); // Cooldown hanya 5 detik untuk memudahkan testing
     } catch (err) {
-      if (err.code === 'auth/too-many-requests') {
-        setErrorMessage('Terlalu banyak permintaan. Silakan tunggu beberapa saat lagi.');
-      } else {
-        setErrorMessage('Gagal mengirim ulang email verifikasi. Pastikan koneksi internet stabil.');
-      }
+      console.error('[VerifyEmail] Error resend:', err);
+      const detailedMsg = err.message || (err.code ? `Error: ${err.code}` : 'Gagal mengirim email verifikasi.');
+      setErrorMessage(`Gagal mengirim verifikasi: ${detailedMsg}`);
     } finally {
       setResending(false);
     }

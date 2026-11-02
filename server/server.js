@@ -6,7 +6,7 @@ import authRoutes from './routes/authRoutes.js';
 import iotRoutes from './routes/iotRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { hasAdminCredentials, hasDatabaseAccess, checkRealtimeDatabaseConnectivity } from './config/firebaseAdmin.js';
-import { isSmtpConfigured } from './config/smtp.js';
+import { isSmtpConfigured, verifySmtpConnection } from './config/smtp.js';
 
 const app = express();
 
@@ -65,6 +65,29 @@ app.get('/api/health', async (req, res) => {
     }
   }
 
+  let liveSmtpStatus = {
+    configured: smtpReady,
+    connected: false,
+    message: smtpReady ? 'Belum diperiksa' : 'SMTP belum dikonfigurasi.',
+  };
+
+  if (smtpReady) {
+    try {
+      const smtpRes = await verifySmtpConnection();
+      liveSmtpStatus = {
+        configured: true,
+        connected: Boolean(smtpRes.success),
+        message: smtpRes.message,
+      };
+    } catch (err) {
+      liveSmtpStatus = {
+        configured: true,
+        connected: false,
+        message: err.message,
+      };
+    }
+  }
+
   // Status sistem: 'degraded' di production jika kredensial wajib belum terkonfigurasi atau RTDB tidak terhubung
   const isDegradedInProd = isProd && (!hasCreds || !dbReady || !deviceAuthReady || !liveDbStatus.connected);
   const systemStatus = isDegradedInProd ? 'degraded' : 'ok';
@@ -74,7 +97,7 @@ app.get('/api/health', async (req, res) => {
     realtimeDatabase: dbReady
       ? (liveDbStatus.connected ? 'connected' : (isProd ? 'disconnected' : 'ready-dev'))
       : (isProd ? 'unavailable' : 'mock-fallback'),
-    smtp: smtpReady ? 'configured' : (isProd ? 'unconfigured' : 'mock-mode'),
+    smtp: smtpReady ? (liveSmtpStatus.connected ? 'ready' : (isProd ? 'auth-failed' : 'configured')) : (isProd ? 'unconfigured' : 'mock-mode'),
     deviceAuth: deviceAuthReady ? 'configured' : 'unconfigured',
   };
 
@@ -93,6 +116,7 @@ app.get('/api/health', async (req, res) => {
     },
     liveConnectivity: {
       realtimeDatabase: liveDbStatus,
+      smtp: liveSmtpStatus,
     },
     timestamp: new Date().toISOString(),
   });

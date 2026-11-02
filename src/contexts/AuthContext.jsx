@@ -117,7 +117,14 @@ export function AuthProvider({ children }) {
       await authApi.resendCustomVerificationEmail(currentUser);
     } catch (backendErr) {
       console.warn('Backend custom email tidak tersedia, beralih ke Firebase bawaan:', backendErr?.message || backendErr);
-      await sendEmailVerification(currentUser);
+      try {
+        await sendEmailVerification(currentUser);
+      } catch (fbErr) {
+        console.error('Firebase client sendEmailVerification gagal:', fbErr);
+        throw new Error(backendErr.message || fbErr.message || 'Gagal mengirim email verifikasi.', {
+          cause: fbErr,
+        });
+      }
     }
   };
 
