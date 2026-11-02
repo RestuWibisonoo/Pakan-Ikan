@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, CalendarClock, History as HistoryIcon, Settings } from 'lucide-react';
-import { Fish } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { Home, CalendarClock, History as HistoryIcon, Settings, Fish } from 'lucide-react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Pages
 import Dashboard from './pages/Dashboard';
 import Schedules from './pages/Schedules';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import VerifyEmail from './pages/VerifyEmail';
 
 function BottomNavigation() {
   const location = useLocation();
@@ -36,36 +40,104 @@ function BottomNavigation() {
 }
 
 function Header() {
+  const { user } = useAuth();
+
   return (
     <header className="app-header">
       <div className="app-title">
         <Fish color="#38bdf8" />
-        <span>AquaIoT</span>
+        <span>Pakan Ikan</span>
       </div>
-      <div className="device-status">
-        <span className="status-indicator online"></span>
-        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Online</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {user?.displayName && (
+          <span
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              maxWidth: '120px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={user.displayName}
+          >
+            {user.displayName}
+          </span>
+        )}
+        <div className="device-status">
+          <span className="status-indicator online"></span>
+          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Online</span>
+        </div>
       </div>
     </header>
   );
 }
 
+function AppRoutes() {
+  const { isAuthenticated, isEmailVerified } = useAuth();
+  const showNavAndHeader = isAuthenticated && isEmailVerified;
+
+  return (
+    <div className="app-container" style={!showNavAndHeader ? { paddingBottom: 0 } : {}}>
+      {showNavAndHeader && <Header />}
+      <main className="main-content" style={!showNavAndHeader ? { padding: '12px' } : {}}>
+        <Routes>
+          {/* Public Authentication Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+
+          {/* Protected Routes (Dashboard & Features) */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/schedules"
+            element={
+              <ProtectedRoute>
+                <Schedules />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <ProtectedRoute>
+                <HistoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+      {showNavAndHeader && <BottomNavigation />}
+    </div>
+  );
+}
+
 function App() {
   return (
-    <BrowserRouter>
-      <div className="app-container">
-        <Header />
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/schedules" element={<Schedules />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-        </main>
-        <BottomNavigation />
-      </div>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

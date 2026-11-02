@@ -442,3 +442,12 @@ input:checked + .slider:before {
   background-color: var(--danger);
   animation: none;
 }
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
