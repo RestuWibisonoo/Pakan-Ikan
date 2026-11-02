@@ -19,27 +19,30 @@ export default function VerifyEmail() {
   const displayEmail = user?.email || location.state?.email || 'Alamat email Anda';
   const hasRedirectedRef = useRef(false);
 
-  // Alihkan langsung login ke Dashboard jika sesi aktif, atau ke halaman login jika sesi tidak aktif
-  const handleVerificationSuccess = useCallback(() => {
+  // Sesuai alur: setelah email terverifikasi, logout sesi sementara
+  // dan arahkan pengguna ke halaman login agar pengguna memasukkan email & password lagi
+  const handleVerificationSuccess = useCallback(async () => {
     if (hasRedirectedRef.current) return;
     hasRedirectedRef.current = true;
 
-    // Jika user memiliki sesi aktif setelah registrasi/login, langsung masuk ke Dashboard!
-    if (auth.currentUser || user) {
-      navigate('/', { replace: true });
-    } else {
-      // Jika sesi tidak aktif, arahkan ke halaman login dengan email terisi
-      const targetEmail = location.state?.email || '';
-      navigate('/login', {
-        replace: true,
-        state: {
-          verifiedSuccess: true,
-          email: targetEmail,
-          message: 'Email berhasil diverifikasi! Silakan masuk dengan akun Pakan Ikan Anda.',
-        },
-      });
+    const targetEmail = user?.email || location.state?.email || '';
+
+    // Selalu logout agar sesi tidak langsung masuk dashboard tanpa login
+    try {
+      await logout();
+    } catch {
+      // Abaikan jika tidak ada sesi aktif
     }
-  }, [user, location.state, navigate]);
+
+    navigate('/login', {
+      replace: true,
+      state: {
+        verifiedSuccess: true,
+        email: targetEmail,
+        message: 'Email berhasil diverifikasi! Silakan masuk dengan alamat email dan kata sandi Anda.',
+      },
+    });
+  }, [user, location.state, logout, navigate]);
 
   // 1. Cek langsung jika status isEmailVerified di context sudah true
   useEffect(() => {

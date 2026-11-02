@@ -4,6 +4,7 @@ import {
   applyActionCode,
   verifyPasswordResetCode,
   confirmPasswordReset,
+  signOut,
 } from 'firebase/auth';
 import {
   CheckCircle2,
@@ -295,17 +296,22 @@ export default function AuthActionHandler() {
             type="button"
             className="btn btn-primary"
             style={{ width: '100%', padding: '14px' }}
-            onClick={() => {
-              if (auth.currentUser) {
-                navigate('/', { replace: true });
-              } else if (safeContinueUrl.startsWith('/')) {
-                navigate(safeContinueUrl, { replace: true });
-              } else {
-                window.location.href = safeContinueUrl;
+            onClick={async () => {
+              try {
+                await signOut(auth);
+              } catch {
+                // Abaikan jika tidak ada sesi
               }
+              navigate('/login', {
+                replace: true,
+                state: {
+                  verifiedSuccess: true,
+                  message: 'Email berhasil diverifikasi! Silakan masuk dengan alamat email dan kata sandi Anda.',
+                },
+              });
             }}
           >
-            <span>Masuk ke Dashboard Pakan Ikan</span>
+            <span>Masuk ke Akun Pakan Ikan</span>
             <ArrowRight size={18} />
           </button>
         </div>
