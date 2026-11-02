@@ -38,7 +38,7 @@ const cliArgs = parseArgs();
 
 const CONFIG = {
   apiUrl: (cliArgs.url || process.env.API_URL || 'http://127.0.0.1:5000/api/v1').replace(/\/$/, ''),
-  deviceKey: cliArgs.key || process.env.DEVICE_KEY || 'pakan-ikan-esp32-secret-2026',
+  deviceKey: cliArgs.key || process.env.DEVICE_KEY || (process.env.NODE_ENV === 'test' ? 'test-device-api-key-32-chars-ok' : 'test-device-key-local-dev-only'),
   deviceId: cliArgs['device-id'] || process.env.DEVICE_ID || 'fish-feeder-001',
   intervalSec: Math.max(1, parseInt(cliArgs.interval || process.env.INTERVAL_SEC || '10', 10)),
   mode: cliArgs.mode || process.env.SIMULATOR_MODE || 'loop',

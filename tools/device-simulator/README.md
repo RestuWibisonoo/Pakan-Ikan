@@ -87,7 +87,7 @@ node tools/device-simulator/simulator.js --mode=offline
 | Parameter CLI | Variabel Environment | Default | Keterangan |
 |---|---|---|---|
 | `--url` | `API_URL` | `http://127.0.0.1:5000/api/v1` | URL basis endpoint IoT backend |
-| `--key` | `DEVICE_KEY` | `pakan-ikan-esp32-secret-2026` | Kunci rahasia shared secret ESP32 |
+| `--key` | `DEVICE_KEY` | `(wajib ditentukan di produksi)` | Kunci rahasia shared secret ESP32 (minimal 32 karakter acak) |
 | `--device-id` | `DEVICE_ID` | `fish-feeder-001` | Identifier perangkat keras |
 | `--interval` | `INTERVAL_SEC` | `10` | Jeda antar telemetri dalam detik |
 | `--mode` | `SIMULATOR_MODE` | `loop` | `loop`, `once`, `unauthorized`, `invalid-payload`, `offline` |

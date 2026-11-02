@@ -120,15 +120,15 @@ ls -la "$BACKUP_DIR"
 ```
 
 ### Langkah 2: Pengambilan Kode Sumber Repositori Baru
-Karena `/var/www/pakan-ikan` sudah ada, kita gunakan pendekatan *clean checkout*:
+Setelah backup terverifikasi, pindahkan direktori lama ke lokasi cadangan tetap `/var/www/pakan-ikan_legacy`:
 ```bash
-# Pindahkan direktori lama sementara atau bersihkan untuk clone
-sudo mv /var/www/pakan-ikan /var/www/pakan-ikan_temp
+# 1. Pindahkan direktori lama ke lokasi cadangan tetap
+sudo mv /var/www/pakan-ikan /var/www/pakan-ikan_legacy
 
-# Clone repositori Pakan-Ikan dari GitHub
+# 2. Clone repositori Pakan-Ikan dari GitHub ke /var/www/pakan-ikan
 sudo git clone https://github.com/RestuWibisonoo/Pakan-Ikan.git /var/www/pakan-ikan
 
-# Atur kepemilikan direktori ke pengguna saat ini
+# 3. Atur kepemilikan direktori ke pengguna saat ini
 sudo chown -R $USER:$USER /var/www/pakan-ikan
 ```
 
@@ -175,8 +175,8 @@ FIREBASE_API_KEY=AIzaSyDO4JXKcHrTcufS9LavNMLGhpwJxYbdUP8
 FIREBASE_DATABASE_URL=https://pakan-ikan-4c18e-default-rtdb.asia-southeast1.firebasedatabase.app
 FIREBASE_SERVICE_ACCOUNT_PATH=/var/www/pakan-ikan/server/serviceAccountKey.json
 
-# ESP32 Shared Key Header
-DEVICE_API_KEY=pakan-ikan-esp32-secret-2026
+# ESP32 Shared Key Header (Wajib string acak entropi tinggi minimal 32 karakter)
+DEVICE_API_KEY=ganti_dengan_kunci_acak_min_32_karakter_aman
 DEFAULT_DEVICE_ID=fish-feeder-001
 
 # SMTP Email (Gmail App Password)
@@ -274,25 +274,25 @@ Lakukan pengujian langsung dari shell server VM `pakan-ikan`:
 
 ---
 
-## 6. Prosedur Rollback Cepat & Aman
+## 6. Prosedur Rollback Cepat & Terverifikasi (< 60 Detik)
 
-Jika dalam pengujian ditemukan kendala kritis pada sistem baru:
+Jika dalam pengujian pasca-deployment ditemukan kendala kritis pada sistem baru:
 
 ```bash
 # 1. Hentikan service backend baru
 sudo systemctl stop pakan-ikan-api
 sudo systemctl disable pakan-ikan-api
 
-# 2. Kembalikan root Nginx ke direktori website lama
-# Cukup edit /etc/nginx/sites-available/pakan-ikan dan ubah:
-# 'root /var/www/pakan-ikan/dist;' -> 'root /var/www/pakan-ikan_legacy_<timestamp>;'
-sudo sed -i 's|root /var/www/pakan-ikan/dist;|root /var/www/pakan-ikan_temp;|g' /etc/nginx/sites-available/pakan-ikan
+# OPSI A (Terkonfigurasi Instan via Nginx - Tanpa Copy File):
+# Kembalikan root Nginx langsung ke direktori backup website lama
+sudo sed -i 's|root /var/www/pakan-ikan/dist;|root /var/www/pakan-ikan_legacy;|g' /etc/nginx/sites-available/pakan-ikan
+sudo nginx -t && sudo systemctl reload nginx
 
-# 3. Atau kembalikan seluruh direktori backup lama
+# OPSI B (Restorasi Penuh Struktur Filesystem):
+# Hapus build baru dan salin kembali berkas lama dari /var/www/pakan-ikan_legacy
 sudo rm -rf /var/www/pakan-ikan
-sudo cp -a /var/www/pakan-ikan_temp /var/www/pakan-ikan
-
-# 4. Muat ulang Nginx
+sudo cp -a /var/www/pakan-ikan_legacy /var/www/pakan-ikan
+sudo sed -i 's|root /var/www/pakan-ikan/dist;|root /var/www/pakan-ikan;|g' /etc/nginx/sites-available/pakan-ikan
 sudo nginx -t && sudo systemctl reload nginx
 ```
-Website lama akan kembali aktif secara instan tanpa risiko kehilangan data.
+Website lama akan kembali aktif secara instan dan aman dari salinan `/var/www/pakan-ikan_legacy`.

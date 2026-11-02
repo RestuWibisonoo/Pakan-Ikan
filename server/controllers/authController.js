@@ -1,4 +1,6 @@
 import { adminAuth, hasAdminCredentials } from '../config/firebaseAdmin.js';
+import { isSmtpConfigured } from '../config/smtp.js';
+import config from '../config/appConfig.js';
 import linkService from '../services/linkService.js';
 import emailService from '../services/emailService.js';
 
@@ -31,6 +33,15 @@ export async function sendVerification(req, res, next) {
       });
     }
 
+    // Fail-safe di production: jika SMTP belum dikonfigurasi, kembalikan 503 agar frontend failover ke Firebase Client
+    if (config.nodeEnv === 'production' && !isSmtpConfigured()) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'Layanan email kustom belum terkonfigurasi pada server.',
+      });
+    }
+
     const { continueUrl } = req.body || {};
 
     const verificationUrl = await linkService.createEmailVerificationLink(
@@ -53,6 +64,14 @@ export async function sendVerification(req, res, next) {
       return res.status(503).json({
         success: false,
         error: 'Layanan email backend belum siap: Firebase Admin Service Account belum dikonfigurasi.',
+      });
+    }
+
+    if (config.nodeEnv === 'production' && !isSmtpConfigured()) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'Layanan email kustom belum terkonfigurasi pada server.',
       });
     }
     next(err);
@@ -84,6 +103,15 @@ export async function resendVerification(req, res, next) {
       });
     }
 
+    // Fail-safe di production: jika SMTP belum dikonfigurasi, kembalikan 503 agar frontend failover ke Firebase Client
+    if (config.nodeEnv === 'production' && !isSmtpConfigured()) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'Layanan email kustom belum terkonfigurasi pada server.',
+      });
+    }
+
     const { continueUrl } = req.body || {};
 
     const verificationUrl = await linkService.createEmailVerificationLink(
@@ -106,6 +134,14 @@ export async function resendVerification(req, res, next) {
       return res.status(503).json({
         success: false,
         error: 'Layanan email backend belum siap: Firebase Admin Service Account belum dikonfigurasi.',
+      });
+    }
+
+    if (config.nodeEnv === 'production' && !isSmtpConfigured()) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'Layanan email kustom belum terkonfigurasi pada server.',
       });
     }
     next(err);
@@ -146,6 +182,14 @@ export async function sendPasswordReset(req, res, next) {
       return res.status(503).json({
         success: false,
         error: 'Layanan email backend belum siap: Firebase Admin Service Account belum dikonfigurasi.',
+      });
+    }
+
+    if (config.nodeEnv === 'production' && !isSmtpConfigured()) {
+      return res.status(503).json({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        error: 'Layanan email kustom belum terkonfigurasi pada server.',
       });
     }
 

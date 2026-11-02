@@ -115,8 +115,12 @@ export function validateCommandResult(data) {
   }
 
   const { status } = data;
-  if (!status || (status !== 'completed' && status !== 'failed')) {
-    return { valid: false, error: 'Status hasil perintah harus "completed" atau "failed".' };
+  const validStatuses = ['acknowledged', 'executing', 'completed', 'failed'];
+  if (!status || !validStatuses.includes(status)) {
+    return {
+      valid: false,
+      error: 'Status hasil perintah harus salah satu dari: acknowledged, executing, completed, failed.',
+    };
   }
 
   return { valid: true };

@@ -146,6 +146,55 @@ class DeviceRepository {
   }
 
   /**
+   * Mengambil rahasia/kunci unik per perangkat (dukungan per-device secret)
+   */
+  async getDeviceSecret(deviceId) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          const snapshot = await db.ref(`devices/${id}/meta/device_key`).once('value');
+          if (snapshot.exists()) {
+            return snapshot.val();
+          }
+        }
+      } catch (err) {
+        console.warn(`[DeviceRepository] Gagal membaca device_key RTDB (${err.message}).`);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    return dev.meta?.device_key || null;
+  }
+
+  /**
+   * Menetapkan kunci rahasia unik untuk perangkat tertentu
+   */
+  async setDeviceSecret(deviceId, secretKey) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          await db.ref(`devices/${id}/meta/device_key`).set(secretKey);
+        }
+      } catch (err) {
+        console.warn(`[DeviceRepository] Gagal menyimpan device_key RTDB (${err.message}).`);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    dev.meta = dev.meta || {};
+    dev.meta.device_key = secretKey;
+    return secretKey;
+  }
+
+  /**
    * Mengambil status perangkat
    */
   async getStatus(deviceId) {
@@ -338,8 +387,8 @@ class DeviceRepository {
       id: cmdId,
       type: command.type, // 'feed' | 'pump'
       params: command.params || {},
-      status: 'pending',
-      created_at: new Date().toISOString(),
+      status: command.status || 'pending',
+      created_at: command.created_at || new Date().toISOString(),
     };
 
     if (hasDatabaseAccess()) {
@@ -362,10 +411,13 @@ class DeviceRepository {
 
   /**
    * Mengambil perintah pending tertua (FIFO) untuk dieksekusi ESP32
+   * Membersihkan perintah usang/kedaluwarsa (> 180 detik) untuk mencegah aktuasi pakan basi
    */
   async getLatestPendingCommand(deviceId) {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
+    const now = Date.now();
+    const COMMAND_EXPIRATION_MS = 180000; // 3 menit timeout kedaluwarsa
 
     if (hasDatabaseAccess()) {
       try {
@@ -374,12 +426,35 @@ class DeviceRepository {
           const snapshot = await db
             .ref(`devices/${id}/commands/queue`)
             .orderByChild('created_at')
-            .limitToFirst(1)
             .once('value');
+
           if (snapshot.exists()) {
-            const val = snapshot.val();
-            const firstKey = Object.keys(val)[0];
-            return val[firstKey];
+            let activeCommand = null;
+            const updates = {};
+
+            snapshot.forEach((child) => {
+              const cmd = child.val();
+              const createdAt = new Date(cmd.created_at).getTime();
+
+              if (!isNaN(createdAt) && now - createdAt > COMMAND_EXPIRATION_MS) {
+                // Evict perintah kedaluwarsa
+                updates[`devices/${id}/commands/queue/${child.key}`] = null;
+                updates[`devices/${id}/commands/history/${child.key}`] = {
+                  ...cmd,
+                  status: 'expired',
+                  error: 'Perintah kedaluwarsa (perangkat tidak merespons > 3 menit).',
+                  finished_at: new Date().toISOString(),
+                };
+              } else if (!activeCommand) {
+                activeCommand = cmd;
+              }
+            });
+
+            if (Object.keys(updates).length > 0) {
+              await db.ref().update(updates);
+            }
+
+            return activeCommand;
           }
           return null;
         }
@@ -393,25 +468,76 @@ class DeviceRepository {
     const queue = dev.commands.queue || {};
     const keys = Object.keys(queue);
     if (keys.length === 0) return null;
+
+    let activeCommand = null;
     const sorted = keys
       .map((k) => queue[k])
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    return sorted[0] || null;
+
+    for (const cmd of sorted) {
+      const createdAt = new Date(cmd.created_at).getTime();
+      if (!isNaN(createdAt) && now - createdAt > COMMAND_EXPIRATION_MS) {
+        delete dev.commands.queue[cmd.id];
+        dev.commands.history = dev.commands.history || {};
+        dev.commands.history[cmd.id] = {
+          ...cmd,
+          status: 'expired',
+          error: 'Perintah kedaluwarsa (perangkat tidak merespons > 3 menit).',
+          finished_at: new Date().toISOString(),
+        };
+      } else if (!activeCommand) {
+        activeCommand = cmd;
+      }
+    }
+
+    return activeCommand;
   }
 
   /**
    * Memperbarui status hasil eksekusi perintah dari ESP32 dan menyinkronkan action_logs
+   * Mendukung siklus hidup: 'acknowledged' -> 'executing' -> 'completed' | 'failed'
    */
   async updateCommandResult(deviceId, commandId, result) {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
-    const finishedAt = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const status = result.status || 'completed';
 
+    // Status perantara: 'acknowledged' atau 'executing'
+    if (status === 'acknowledged' || status === 'executing') {
+      const interimData = {
+        status,
+        updated_at: nowIso,
+        message: result.message || `Perintah sedang diproses (${status}).`,
+      };
+
+      if (hasDatabaseAccess()) {
+        try {
+          const db = getAdminDatabase();
+          if (db) {
+            await db.ref(`devices/${id}/commands/queue/${commandId}`).update(interimData);
+          }
+        } catch (err) {
+          console.warn(`[DeviceRepository] Gagal update interim command RTDB (${err.message}).`);
+        }
+      }
+
+      const dev = getOrCreateMockDevice(id);
+      if (dev.commands?.queue?.[commandId]) {
+        Object.assign(dev.commands.queue[commandId], interimData);
+      }
+
+      await this.updateActionLogStatusByCommandId(id, commandId, status);
+      return { id: commandId, ...interimData };
+    }
+
+    // Status final: 'completed' atau 'failed'
     const resultData = {
       id: commandId,
-      status: result.status || 'completed', // 'completed' | 'failed'
+      status,
+      message: result.message || '',
       error: result.error || null,
-      finished_at: finishedAt,
+      finished_at: nowIso,
     };
 
     if (hasDatabaseAccess()) {
@@ -438,7 +564,7 @@ class DeviceRepository {
     await this.updateActionLogStatusByCommandId(
       id,
       commandId,
-      result.status === 'completed' ? 'success' : 'failed'
+      status === 'completed' ? 'success' : 'failed'
     );
 
     return resultData;

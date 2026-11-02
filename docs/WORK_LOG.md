@@ -120,4 +120,43 @@ Dokumen ini merupakan catatan riwayat pengembangan terpusat (*central developmen
 - **Pekerjaan Tersisa (*Remaining Work*):** Eksekusi perintah runbook langkah-demi-langkah pada terminal SSH server `192.168.1.115`.
 - **Laporan Detail:** [05-production-deployment-actual-inventory.md](./reports/05-production-deployment-actual-inventory.md)
 
+---
+
+### [Tugas 06] Finalisasi Keamanan, Validasi Autentikasi & Koreksi Runbook Deployment
+- **Tanggal:** 2026-11-02
+- **Objektif:** Melakukan penguatan keamanan menyeluruh (eliminasi static shared secret, per-device key support, anti-tampering parameter pollution), validasi alur autentikasi email & password reset, pembenahan endpoint health check (membedakan kesiapan vs konektivitas live), koreksi direktif Nginx proxy headers, dan standarisasi path backup & rollback pada runbook deployment.
+- **Status Implementasi:** Completed with limitations (Pengujian lokal lulus 100%, eksekusi di server fisik VM 192.168.1.115 dan pemasangan file kredensial privat menunggu tindakan administratif via SSH).
+- **Keputusan & Fitur Utama:**
+  - **Eliminasi Static Shared Secret (A1):** Menghapus default secret produksi dari `appConfig.js`, `.env.example`, dan simulator. Menambahkan fail-safe HTTP 503 jika kunci belum dikonfigurasi.
+  - **Keamanan Komparasi Kunci (A1):** Menggunakan hashing SHA-256 (32 byte konstan) dan `crypto.timingSafeEqual` untuk mencegah *timing attacks* dan kebocoran panjang kunci.
+  - **Dukungan Kunci Unik Per-Perangkat (A1):** Menambahkan `getDeviceSecret`/`setDeviceSecret` di `deviceRepository.js` untuk membaca kunci unik per-device.
+  - **Pembedaan Readiness vs Live Connectivity (A2):** Mengubah `/api/health` agar jujur memisahkan status kesiapan konfigurasi dari live connection ping, tanpa klaim palsu `connected`.
+  - **Anti-Tampering Device Ownership (A3):** Menolak kontradiksi parameter `deviceId` antara query, body, dan header dengan HTTP 400 `INVALID_DEVICE_ID` serta menegakkan isolasi BOLA/IDOR.
+  - **Command Lifecycle & Timeout Eviction (A4):** Menambahkan eviksi otomatis perintah pakan kedaluwarsa (> 180 detik) pada antrean FIFO untuk mencegah aktuasi pakan basi, serta mendukung status perantara `acknowledged` dan `executing`.
+  - **Fail-Safe Email Backend (B5):** Backend merespons HTTP 503 jika SMTP belum dikonfigurasi di produksi, memicu failover otomatis ke Firebase Client SDK tanpa pengiriman ganda.
+  - **Koreksi Header Nginx (C1):** Mengganti `proxy_pass_header` dengan `proxy_set_header X-Device-Key $http_x_device_key;` dan `underscores_in_headers on;` di `deploy/nginx/pakan-ikan` dan `pakan-ikan.conf`.
+  - **Koreksi Backup & Rollback Runbook (C3):** Menstandarkan path cadangan ke `/var/www/pakan-ikan_legacy` secara konsisten tanpa penamaan ganda.
+- **Berkas Utama:**
+  - `server/config/appConfig.js`
+  - `server/middleware/deviceAuthMiddleware.js`
+  - `server/controllers/iotController.js`
+  - `server/controllers/authController.js`
+  - `server/repositories/deviceRepository.js`
+  - `server/validators/iotValidator.js`
+  - `server/server.js`
+  - `deploy/nginx/pakan-ikan`
+  - `deploy/nginx/pakan-ikan.conf`
+  - `docs/deployment/single-vm-architecture.md`
+  - `server/tests/simulatorIntegration.test.js`
+  - `docs/reports/06-security-authentication-deployment-finalization.md`
+- **Pengujian & Hasil:**
+  - `npm test` di `server/`: 55/55 tes lulus 100% (durasi ~198ms).
+  - `npm run lint`: 0 errors, 0 warnings.
+  - `npm run build`: Sukses (211ms).
+  - ESP32 Simulator CLI: Mode `once`, `unauthorized`, dan `invalid-payload` terverifikasi.
+- **Isu Diketahui (*Known Issues*):** Warning ukuran chunk bundle Vite (>500 kB) karena bundle Firebase SDK; kredensial produksi privat `serviceAccountKey.json` dan app password Gmail menunggu input manual di server VM.
+- **Pekerjaan Tersisa (*Remaining Work*):** Eksekusi runbook di server VM `192.168.1.115` via SSH.
+- **Laporan Detail:** [06-security-authentication-deployment-finalization.md](./reports/06-security-authentication-deployment-finalization.md)
+
+
 

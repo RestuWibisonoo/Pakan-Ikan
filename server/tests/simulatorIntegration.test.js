@@ -230,5 +230,95 @@ describe('ESP32 Simulator & Security Integration Suite', () => {
         process.env.NODE_ENV = prevEnv;
       }
     });
+
+    test('Dukungan Kunci Unik Per-Perangkat (Per-Device Secret)', async () => {
+      const customDeviceId = 'kolam-khusus-007';
+      const customSecretKey = 'kunci-rahasia-khusus-perangkat-007';
+
+      // Daftarkan kunci unik pada metadata perangkat
+      await deviceRepository.setDeviceSecret(customDeviceId, customSecretKey);
+
+      // Verifikasi request dengan kunci unik perangkat diterima (200)
+      const resSuccess = await fetch(`${baseUrl}/api/v1/device/sync`, {
+        method: 'GET',
+        headers: {
+          'X-Device-Key': customSecretKey,
+          'X-Device-Id': customDeviceId,
+        },
+      });
+      assert.strictEqual(resSuccess.status, 200);
+
+      // Verifikasi request dengan kunci salah ditolak (401)
+      const resFail = await fetch(`${baseUrl}/api/v1/device/sync`, {
+        method: 'GET',
+        headers: {
+          'X-Device-Key': 'kunci-salah-sembarang',
+          'X-Device-Id': customDeviceId,
+        },
+      });
+      assert.strictEqual(resFail.status, 401);
+    });
+
+    test('Pencegahan Parameter Pollution / Tampering (Inkonsistensi deviceId)', async () => {
+      // Mengirimkan deviceId berbeda di query dan body
+      await assert.rejects(
+        async () => {
+          await getVerifiedDeviceId({
+            query: { deviceId: 'kolam-a' },
+            body: { deviceId: 'kolam-b' },
+            user: { uid: 'user-a-uid' },
+          });
+        },
+        (err) => {
+          return err.status === 400 && err.code === 'INVALID_DEVICE_ID';
+        }
+      );
+    });
+
+    test('Command Lifecycle: Status perantara executing memperbarui log aksi', async () => {
+      const cmd = await iotService.triggerFeedCommand(testDeviceId, {
+        duration_ms: 1000,
+        source: 'manual',
+        userEmail: 'operator@pakan-ikan.my.id',
+      });
+
+      // ESP32 melaporkan sedang mengeksekusi
+      const execRes = await fetch(`${baseUrl}/api/v1/device/commands/${cmd.id}/result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Key': config.device.apiKey,
+          'X-Device-Id': testDeviceId,
+        },
+        body: JSON.stringify({
+          status: 'executing',
+          message: 'Servo sedang berputar membuka katup pakan...',
+        }),
+      });
+
+      assert.strictEqual(execRes.status, 200);
+      const actionLogs = await deviceRepository.getActionLogs(testDeviceId, 5);
+      const targetLog = actionLogs.find((l) => l.command_id === cmd.id);
+      assert.ok(targetLog);
+      assert.strictEqual(targetLog.status, 'executing');
+    });
+
+    test('Command Timeout: Perintah usang (> 180s) otomatis dieviktir dengan status expired', async () => {
+      const staleDeviceId = 'kolam-stale-test';
+      const fourMinutesAgo = new Date(Date.now() - 240000).toISOString();
+
+      // Buat perintah dengan timestamp 4 menit yang lalu
+      const staleCmd = await deviceRepository.createCommand(staleDeviceId, {
+        type: 'feed',
+        params: { duration_ms: 2000 },
+        created_at: fourMinutesAgo,
+      });
+      assert.ok(staleCmd.id);
+
+      // Ambil perintah tertunda: fungsi getLatestPendingCommand harus meng-evict perintah usang
+      const result = await deviceRepository.getLatestPendingCommand(staleDeviceId);
+      // Perintah stale tidak boleh dikembalikan untuk dieksekusi (antrean aktif kosong)
+      assert.strictEqual(result, null);
+    });
   });
 });

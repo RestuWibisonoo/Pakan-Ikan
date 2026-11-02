@@ -21,7 +21,9 @@ export const config = {
   },
 
   device: {
-    apiKey: process.env.DEVICE_API_KEY || 'pakan-ikan-esp32-secret-2026',
+    // Keamanan: Hapus static default secret. Di lingkungan non-test, jika DEVICE_API_KEY kosong,
+    // sistem tidak menyediakan fallback rahasia yang dapat dieksploitasi.
+    apiKey: process.env.DEVICE_API_KEY || (process.env.NODE_ENV === 'test' ? 'test-device-api-key-32-chars-ok' : ''),
     defaultDeviceId: process.env.DEFAULT_DEVICE_ID || 'fish-feeder-001',
   },
 

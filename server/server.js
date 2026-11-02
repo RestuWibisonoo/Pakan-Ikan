@@ -31,17 +31,36 @@ app.use(
 // Body Parser dengan batasan ukuran aman
 app.use(express.json({ limit: '100kb' }));
 
-// Health Check Endpoint
+// Health Check Endpoint (Membedakan secara jujur antara Readiness konfigurasi dan Live Connectivity)
 app.get('/api/health', (req, res) => {
+  const isProd = config.nodeEnv === 'production';
+  const hasCreds = hasAdminCredentials();
+  const dbReady = hasDatabaseAccess();
+  const smtpReady = isSmtpConfigured();
+  const deviceAuthReady = Boolean(config.device.apiKey && config.device.apiKey.trim().length > 0);
+
+  // Status sistem: 'degraded' di production jika kredensial wajib belum terkonfigurasi
+  const systemStatus = isProd && (!hasCreds || !dbReady || !deviceAuthReady) ? 'degraded' : 'ok';
+
+  const services = {
+    firebaseAdmin: hasCreds ? 'ready' : 'credentials-needed',
+    realtimeDatabase: dbReady
+      ? (isProd ? 'ready' : 'ready-dev')
+      : (isProd ? 'unavailable' : 'mock-fallback'),
+    smtp: smtpReady ? 'configured' : (isProd ? 'unconfigured' : 'mock-mode'),
+    deviceAuth: deviceAuthReady ? 'configured' : 'unconfigured',
+  };
+
   res.status(200).json({
-    status: 'ok',
+    status: systemStatus,
     app: 'Pakan Ikan Email Authentication Service',
+    serviceName: 'Pakan Ikan IoT & Authentication Service',
     projectId: config.firebase.projectId,
     environment: config.nodeEnv,
-    services: {
-      firebaseAdmin: hasAdminCredentials() ? 'ready' : 'credentials-needed',
-      realtimeDatabase: hasDatabaseAccess() ? 'connected' : 'local-cache',
-      smtp: isSmtpConfigured() ? 'configured' : 'mock-mode',
+    services,
+    readiness: services,
+    liveConnectivity: {
+      realtimeDatabase: dbReady ? 'ready-for-queries' : 'not-connected',
     },
     timestamp: new Date().toISOString(),
   });

@@ -11,15 +11,9 @@ import {
 } from '../validators/iotValidator.js';
 
 export async function getVerifiedDeviceId(req) {
-  const requestedDeviceId =
-    req.device?.id ||
-    req.query?.deviceId ||
-    req.headers['x-device-id'] ||
-    config.device.defaultDeviceId;
-
   // Jika request berasal dari ESP32 (sudah diautentikasi lewat requireDeviceAuth)
   if (req.device) {
-    return requestedDeviceId;
+    return req.device.id;
   }
 
   // Jika request berasal dari pengguna (Firebase Auth)
@@ -27,10 +21,32 @@ export async function getVerifiedDeviceId(req) {
   if (!userUid) {
     const err = new Error('Autentikasi pengguna tidak valid.');
     err.status = 401;
+    err.code = 'AUTH_TOKEN_MISSING';
     throw err;
   }
 
-  // Verifikasi kepemilikan perangkat untuk mencegah serangan IDOR / BOLA
+  // Periksa parameter identifier perangkat dari query, body, atau header
+  const candidates = [
+    req.query?.deviceId,
+    req.body?.deviceId,
+    req.headers?.['x-device-id'],
+  ].filter((c) => c !== undefined && c !== null && String(c).trim().length > 0);
+
+  // Pencegahan Parameter Pollution & Tampering: Jika terdapat perbedaan nilai deviceId di query/body/header
+  if (candidates.length > 1) {
+    const first = String(candidates[0]).trim();
+    const hasMismatch = candidates.some((c) => String(c).trim() !== first);
+    if (hasMismatch) {
+      const err = new Error('Inkonsistensi parameter identifier perangkat (deviceId) dalam request.');
+      err.status = 400;
+      err.code = 'INVALID_DEVICE_ID';
+      throw err;
+    }
+  }
+
+  const requestedDeviceId = String(candidates[0] || config.device.defaultDeviceId).trim();
+
+  // Verifikasi kepemilikan perangkat untuk mencegah serangan BOLA / IDOR
   const ownerUid = await deviceRepository.getDeviceOwner(requestedDeviceId);
   if (!ownerUid) {
     // Klaim otomatis untuk perangkat pertama yang dihubungkan pengguna
