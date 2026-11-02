@@ -3,8 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import config from './config/appConfig.js';
 import authRoutes from './routes/authRoutes.js';
+import iotRoutes from './routes/iotRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { hasAdminCredentials } from './config/firebaseAdmin.js';
+import { hasAdminCredentials, hasDatabaseAccess } from './config/firebaseAdmin.js';
 import { isSmtpConfigured } from './config/smtp.js';
 
 const app = express();
@@ -39,14 +40,18 @@ app.get('/api/health', (req, res) => {
     environment: config.nodeEnv,
     services: {
       firebaseAdmin: hasAdminCredentials() ? 'ready' : 'credentials-needed',
+      realtimeDatabase: hasDatabaseAccess() ? 'connected' : 'local-cache',
       smtp: isSmtpConfigured() ? 'configured' : 'mock-mode',
     },
     timestamp: new Date().toISOString(),
   });
 });
 
-// Routing Autentikasi Kustom
+// Routing Autentikasi Kustom (Tetap berada di /api/auth untuk backward compatibility)
 app.use('/api/auth', authRoutes);
+
+// Routing IoT v1 (Monitoring pH, Feeder Servo, Pompa Air, Jadwal, Pengaturan)
+app.use('/api/v1', iotRoutes);
 
 // 404 Handler
 app.use((req, res) => {

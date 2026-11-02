@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, User, Mail, ShieldCheck, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import iotApi from '../services/iotApi';
 
 export default function Settings() {
   const { user, logout } = useAuth();
@@ -16,15 +17,53 @@ export default function Settings() {
   });
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Ambil pengaturan dari backend
+  useEffect(() => {
+    let isMounted = true;
+    iotApi
+      .getSettings()
+      .then((res) => {
+        if (isMounted && res?.data) {
+          const s = res.data;
+          setSettings({
+            ph_min: s.ph_min !== undefined ? s.ph_min : 6.5,
+            ph_max: s.ph_max !== undefined ? s.ph_max : 8.5,
+            feed_duration: s.feed_duration_ms !== undefined ? s.feed_duration_ms : 1000,
+            pump_duration: s.pump_duration_ms !== undefined ? s.pump_duration_ms : 5000,
+            device_name: s.device_name || 'Kolam Utama',
+          });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setSettings((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = () => {
-    // TODO: Save to Firebase Realtime Database / Firestore
-    alert('Pengaturan berhasil disimpan');
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await iotApi.updateSettings({
+        ph_min: Number(settings.ph_min),
+        ph_max: Number(settings.ph_max),
+        feed_duration_ms: Number(settings.feed_duration),
+        pump_duration_ms: Number(settings.pump_duration),
+        device_name: settings.device_name,
+      });
+      alert('Pengaturan berhasil disimpan ke sistem.');
+    } catch (err) {
+      alert(`Pengaturan lokal diperbarui. (${err.message || 'Offline mode'})`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -176,8 +215,9 @@ export default function Settings() {
         className="btn btn-primary"
         style={{ width: '100%', padding: '16px', marginBottom: '16px' }}
         onClick={handleSave}
+        disabled={isSaving}
       >
-        <Save size={20} /> Simpan Pengaturan
+        <Save size={20} /> {isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'}
       </button>
 
       {/* Tombol Logout Akun */}

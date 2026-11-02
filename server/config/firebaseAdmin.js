@@ -62,12 +62,14 @@ function initializeFirebaseAdmin() {
     initializedApp = admin.initializeApp({
       credential,
       projectId: config.firebase.projectId,
+      databaseURL: config.firebase.databaseUrl,
     });
     console.log(`[Firebase Admin] Terinisialisasi dengan Service Account untuk project: ${config.firebase.projectId}`);
   } else {
     // Inisialisasi dasar tanpa service account (server tetap dapat start)
     initializedApp = admin.initializeApp({
       projectId: config.firebase.projectId,
+      databaseURL: config.firebase.databaseUrl,
     });
     console.warn(
       `[Firebase Admin] Berjalan tanpa Service Account credentials untuk project '${config.firebase.projectId}'. ` +
@@ -80,7 +82,15 @@ function initializeFirebaseAdmin() {
 
 export const adminApp = initializeFirebaseAdmin();
 export const adminAuth = admin.auth(adminApp);
+export const getAdminDatabase = () => {
+  try {
+    return admin.database(adminApp);
+  } catch {
+    return null;
+  }
+};
 export const hasAdminCredentials = () => hasServiceAccount;
+export const hasDatabaseAccess = () => hasServiceAccount && Boolean(config.firebase.databaseUrl);
 
 export default admin;
 

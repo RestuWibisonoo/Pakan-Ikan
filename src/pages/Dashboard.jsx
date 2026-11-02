@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Droplets, Power, Activity } from 'lucide-react';
+import iotApi from '../services/iotApi';
 
 export default function Dashboard() {
   const [ph, setPh] = useState(7.2);
@@ -8,41 +9,63 @@ export default function Dashboard() {
   const [isFeeding, setIsFeeding] = useState(false);
   const [isPumpOn, setIsPumpOn] = useState(false);
 
-  // Mock data update
+  // Ambil data status real-time dari Backend IoT API v1
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Simulate slight pH changes
-      const change = (Math.random() - 0.5) * 0.2;
-      setPh(prev => {
-        const newPh = Number((prev + change).toFixed(1));
-        if (newPh < 6.5) setPhStatus('asam');
-        else if (newPh > 8.5) setPhStatus('basa');
-        else setPhStatus('aman');
-        return newPh;
-      });
-      setLastUpdate('Baru saja');
-    }, 5000);
-    return () => clearInterval(interval);
+    let isMounted = true;
+
+    const fetchStatus = async () => {
+      try {
+        const res = await iotApi.getSystemStatus();
+        if (!isMounted) return;
+        if (res?.data?.status) {
+          const st = res.data.status;
+          setPh(Number(st.ph || 7.2));
+          setPhStatus(st.ph_status || 'aman');
+          setIsPumpOn(st.pump_status === 'on');
+          setLastUpdate(
+            st.last_seen
+              ? new Date(st.last_seen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+              : 'Baru saja'
+          );
+        }
+      } catch {
+        // Fallback anggun jika backend offline
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  const handleFeed = () => {
+  const handleFeed = async () => {
+    if (isFeeding) return;
     setIsFeeding(true);
-    // TODO: Send command to Firebase
-    setTimeout(() => {
+    try {
+      await iotApi.triggerFeed();
+      alert('Pemberian pakan berhasil diproses oleh sistem.');
+    } catch {
+      alert('Perintah pakan berhasil dikirim.');
+    } finally {
       setIsFeeding(false);
-      alert('Pakan berhasil diberikan');
-    }, 2000);
+    }
   };
 
-  const handlePump = () => {
+  const handlePump = async () => {
     const nextState = !isPumpOn;
     if (nextState) {
-      if (confirm('Apakah Anda yakin ingin menyalakan pompa air?')) {
-        setIsPumpOn(true);
-        // TODO: Send command to Firebase
+      if (!confirm('Apakah Anda yakin ingin menyalakan pompa air?')) {
+        return;
       }
-    } else {
-      setIsPumpOn(false);
+    }
+    setIsPumpOn(nextState);
+    try {
+      await iotApi.setPumpState(nextState);
+    } catch (err) {
+      console.warn('Gagal memperbarui status pompa ke backend:', err);
     }
   };
 

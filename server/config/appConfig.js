@@ -14,8 +14,14 @@ export const config = {
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID || 'pakan-ikan-4c18e',
     apiKey: process.env.FIREBASE_API_KEY || 'AIzaSyDO4JXKcHrTcufS9LavNMLGhpwJxYbdUP8',
+    databaseUrl: process.env.FIREBASE_DATABASE_URL || 'https://pakan-ikan-4c18e-default-rtdb.asia-southeast1.firebasedatabase.app',
     serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || '',
     serviceAccountKey: process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '',
+  },
+
+  device: {
+    apiKey: process.env.DEVICE_API_KEY || 'pakan-ikan-esp32-secret-2026',
+    defaultDeviceId: process.env.DEFAULT_DEVICE_ID || 'fish-feeder-001',
   },
 
   smtp: {
