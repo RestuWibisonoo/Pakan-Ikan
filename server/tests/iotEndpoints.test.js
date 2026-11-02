@@ -156,5 +156,28 @@ describe('IoT Endpoints - Express API v1', () => {
       assert.strictEqual(res.status, 400);
     });
   });
+
+  describe('Device Management Endpoints Access Control', () => {
+    test('GET /api/v1/devices tanpa token Firebase ID mengembalikan 401', async () => {
+      const res = await fetch(`${baseUrl}/api/v1/devices`);
+      assert.strictEqual(res.status, 401);
+    });
+
+    test('POST /api/v1/devices tanpa token Firebase ID mengembalikan 401', async () => {
+      const res = await fetch(`${baseUrl}/api/v1/devices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'kolam-baru-01' }),
+      });
+      assert.strictEqual(res.status, 401);
+    });
+
+    test('DELETE /api/v1/devices/:id tanpa token Firebase ID mengembalikan 401', async () => {
+      const res = await fetch(`${baseUrl}/api/v1/devices/kolam-baru-01`, {
+        method: 'DELETE',
+      });
+      assert.strictEqual(res.status, 401);
+    });
+  });
 });
 

@@ -20,6 +20,23 @@ const API_BASE_URL = getApiBaseUrl();
 
 const REQUEST_TIMEOUT_MS = 6000;
 
+export function getActiveDeviceId() {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('pakan_ikan_active_device_id') || '';
+  }
+  return '';
+}
+
+export function setActiveDeviceId(deviceId) {
+  if (typeof window !== 'undefined') {
+    if (deviceId) {
+      localStorage.setItem('pakan_ikan_active_device_id', deviceId);
+    } else {
+      localStorage.removeItem('pakan_ikan_active_device_id');
+    }
+  }
+}
+
 async function fetchWithAuth(endpoint, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   const currentUser = auth.currentUser;
   let token = null;
@@ -36,6 +53,11 @@ async function fetchWithAuth(endpoint, options = {}, timeoutMs = REQUEST_TIMEOUT
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
+
+  const activeDeviceId = getActiveDeviceId();
+  if (activeDeviceId && !headers['X-Device-Id']) {
+    headers['X-Device-Id'] = activeDeviceId;
+  }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -160,6 +182,32 @@ export async function getActionLogs(limit = 20) {
   return fetchWithAuth(`/logs/actions?limit=${limit}`);
 }
 
+/**
+ * Mengambil daftar seluruh perangkat yang dimiliki pengguna
+ */
+export async function getDevices() {
+  return fetchWithAuth('/devices');
+}
+
+/**
+ * Mendaftarkan perangkat IoT baru ke akun pengguna
+ */
+export async function registerDevice(data) {
+  return fetchWithAuth('/devices', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Melepas tautan perangkat IoT dari akun pengguna
+ */
+export async function unpairDevice(deviceId) {
+  return fetchWithAuth(`/devices/${deviceId}`, {
+    method: 'DELETE',
+  });
+}
+
 export default {
   getSystemStatus,
   triggerFeed,
@@ -172,5 +220,10 @@ export default {
   updateSettings,
   getPhLogs,
   getActionLogs,
+  getDevices,
+  registerDevice,
+  unpairDevice,
+  getActiveDeviceId,
+  setActiveDeviceId,
 };
 

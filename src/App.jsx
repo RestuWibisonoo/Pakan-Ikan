@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { Home, CalendarClock, History as HistoryIcon, Settings, Fish } from 'lucide-react';
+import { Home, CalendarClock, History as HistoryIcon, Settings, Fish, Cpu } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import iotApi from './services/iotApi';
@@ -8,6 +8,7 @@ import iotApi from './services/iotApi';
 // Pages
 import Dashboard from './pages/Dashboard';
 import Schedules from './pages/Schedules';
+import DevicesPage from './pages/Devices';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
@@ -29,6 +30,10 @@ function BottomNavigation() {
       <Link to="/schedules" className={`nav-item ${path === '/schedules' ? 'active' : ''}`}>
         <CalendarClock size={24} />
         <span>Jadwal</span>
+      </Link>
+      <Link to="/devices" className={`nav-item ${path === '/devices' ? 'active' : ''}`}>
+        <Cpu size={24} />
+        <span>Perangkat</span>
       </Link>
       <Link to="/history" className={`nav-item ${path === '/history' ? 'active' : ''}`}>
         <HistoryIcon size={24} />
@@ -89,12 +94,14 @@ function Header() {
             {user.displayName}
           </span>
         )}
-        <div className="device-status">
-          <span className={`status-indicator ${deviceOnline ? 'online' : 'offline'}`}></span>
-          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            {deviceOnline ? 'Online' : 'Offline'}
-          </span>
-        </div>
+        <Link to="/devices" style={{ textDecoration: 'none' }} title="Kelola Perangkat IoT">
+          <div className="device-status">
+            <span className={`status-indicator ${deviceOnline ? 'online' : 'offline'}`}></span>
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              {deviceOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
+        </Link>
       </div>
     </header>
   );
@@ -130,6 +137,14 @@ function AppRoutes() {
             element={
               <ProtectedRoute>
                 <Schedules />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/devices"
+            element={
+              <ProtectedRoute>
+                <DevicesPage />
               </ProtectedRoute>
             }
           />

@@ -18,6 +18,9 @@ import {
   getPendingCommand,
   reportCommandResult,
   syncDevice,
+  getUserDevices,
+  registerDevice,
+  unpairDevice,
 } from '../controllers/iotController.js';
 
 const router = express.Router();
@@ -46,6 +49,11 @@ router.put('/settings', requireAuth, updateSettings);
 // Riwayat log
 router.get('/logs/ph', requireAuth, getPhLogs);
 router.get('/logs/actions', requireAuth, getActionLogs);
+
+// Manajemen perangkat IoT (daftar, daftarkan perangkat baru, lepas tautan)
+router.get('/devices', requireAuth, getUserDevices);
+router.post('/devices', requireAuth, registerDevice);
+router.delete('/devices/:id', requireAuth, unpairDevice);
 
 // ==============================================================================
 // ESP32 Hardware Endpoints (Device Secret Header X-Device-Key Required)

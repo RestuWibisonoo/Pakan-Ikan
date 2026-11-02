@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, User, Mail, ShieldCheck, LogOut } from 'lucide-react';
+import { Save, User, Mail, ShieldCheck, LogOut, Cpu, ChevronRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import iotApi from '../services/iotApi';
@@ -140,6 +140,29 @@ export default function Settings() {
             Email Terverifikasi
           </span>
         </div>
+      </div>
+
+      {/* Manajemen Perangkat IoT */}
+      <div className="card glass-panel" style={{ marginBottom: '20px' }}>
+        <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Cpu size={18} color="var(--primary)" />
+          <span>Perangkat IoT</span>
+        </h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+          Daftarkan modul hardware ESP32 baru atau beralih antar kolam pemantauan.
+        </p>
+        <button
+          type="button"
+          className="btn btn-outline"
+          style={{ width: '100%', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          onClick={() => navigate('/devices')}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Cpu size={16} color="var(--primary)" />
+            <span>Kelola & Tambah Perangkat</span>
+          </span>
+          <ChevronRight size={16} />
+        </button>
       </div>
 
       {/* Batas Aman pH */}

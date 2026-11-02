@@ -335,6 +335,82 @@ export async function syncDevice(req, res, next) {
   }
 }
 
+// ==============================================================================
+// Device Management Endpoints (Daftar & Registrasi Perangkat Baru untuk Akun)
+// ==============================================================================
+
+export async function getUserDevices(req, res, next) {
+  try {
+    const userUid = req.user?.uid;
+    if (!userUid) {
+      return res.status(401).json({ success: false, error: 'Autentikasi pengguna tidak valid.' });
+    }
+    const devices = await deviceRepository.getUserDevices(userUid);
+    return res.status(200).json({ success: true, data: devices });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function registerDevice(req, res, next) {
+  try {
+    const userUid = req.user?.uid;
+    if (!userUid) {
+      return res.status(401).json({ success: false, error: 'Autentikasi pengguna tidak valid.' });
+    }
+    const { deviceId, deviceName, deviceKey } = req.body || {};
+    if (!deviceId || typeof deviceId !== 'string') {
+      return res.status(400).json({ success: false, error: 'ID perangkat (Device ID) wajib diisi.' });
+    }
+    const cleanId = deviceId.trim();
+    if (!/^[a-zA-Z0-9_-]{3,64}$/.test(cleanId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Format Device ID tidak valid. Gunakan 3-64 karakter alfanumerik, tanda hubung (-), atau garis bawah (_).',
+      });
+    }
+
+    const device = await deviceRepository.claimDevice(
+      cleanId,
+      userUid,
+      deviceName?.trim() || cleanId,
+      deviceKey?.trim() || null
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: `Perangkat '${cleanId}' berhasil didaftarkan ke akun Anda.`,
+      data: device,
+    });
+  } catch (err) {
+    if (err.code === 'DEVICE_ALREADY_REGISTERED') {
+      return res.status(409).json({ success: false, error: err.message, code: err.code });
+    }
+    next(err);
+  }
+}
+
+export async function unpairDevice(req, res, next) {
+  try {
+    const userUid = req.user?.uid;
+    if (!userUid) {
+      return res.status(401).json({ success: false, error: 'Autentikasi pengguna tidak valid.' });
+    }
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'ID perangkat wajib disertakan.' });
+    }
+
+    await deviceRepository.unpairDevice(id, userUid);
+    return res.status(200).json({
+      success: true,
+      message: `Tautan perangkat '${id}' berhasil dilepas dari akun Anda.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export default {
   getStatus,
   triggerFeed,
@@ -351,5 +427,8 @@ export default {
   getPendingCommand,
   reportCommandResult,
   syncDevice,
+  getUserDevices,
+  registerDevice,
+  unpairDevice,
 };
 

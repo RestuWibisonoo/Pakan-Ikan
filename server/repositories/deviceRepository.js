@@ -751,6 +751,186 @@ class DeviceRepository {
     const dev = getOrCreateMockDevice(id);
     return (dev.logs?.action_logs || []).slice(0, limit);
   }
+
+  /**
+   * Mengambil daftar perangkat yang dimiliki oleh pengguna tertentu
+   */
+  async getUserDevices(ownerUid) {
+    this.assertDatabaseAvailable();
+    if (!ownerUid) return [];
+
+    const defaultId = config.device.defaultDeviceId;
+
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          const userDevsSnap = await db.ref(`user_devices/${ownerUid}`).once('value');
+          let claimedIds = [];
+
+          if (userDevsSnap.exists()) {
+            claimedIds = Object.keys(userDevsSnap.val() || {});
+          }
+
+          // Jika user belum memiliki daftar perangkat terdaftar, periksa perangkat default
+          if (claimedIds.length === 0) {
+            const defaultOwnerSnap = await db.ref(`devices/${defaultId}/meta/owner_uid`).once('value');
+            const defaultOwner = defaultOwnerSnap.exists() ? defaultOwnerSnap.val() : null;
+
+            if (!defaultOwner || defaultOwner === ownerUid) {
+              await this.setDeviceOwner(defaultId, ownerUid);
+              claimedIds = [defaultId];
+            }
+          }
+
+          const result = [];
+          for (const dId of claimedIds) {
+            const devSnap = await db.ref(`devices/${dId}`).once('value');
+            const devVal = devSnap.exists() ? devSnap.val() : {};
+            result.push({
+              deviceId: dId,
+              deviceName: devVal.settings?.device_name || dId,
+              online: Boolean(devVal.status?.online),
+              lastSeen: devVal.status?.last_seen || null,
+              ph: devVal.status?.ph ?? null,
+              phStatus: devVal.status?.ph_status || 'aman',
+              pumpStatus: devVal.status?.pump_status || 'off',
+              claimedAt: devVal.meta?.claimed_at || new Date().toISOString(),
+              isDefault: dId === defaultId,
+            });
+          }
+
+          return result;
+        }
+      } catch (err) {
+        this.handleDatabaseError('mengambil daftar perangkat pengguna', err);
+      }
+    }
+
+    // Mock Store Fallback
+    const result = [];
+    let hasClaimed = false;
+
+    for (const [id, dev] of Object.entries(mockStore.devices)) {
+      if (dev.meta?.owner_uid === ownerUid) {
+        hasClaimed = true;
+        result.push({
+          deviceId: id,
+          deviceName: dev.settings?.device_name || id,
+          online: Boolean(dev.status?.online),
+          lastSeen: dev.status?.last_seen || null,
+          ph: dev.status?.ph ?? null,
+          phStatus: dev.status?.ph_status || 'aman',
+          pumpStatus: dev.status?.pump_status || 'off',
+          claimedAt: dev.meta?.claimed_at || new Date().toISOString(),
+          isDefault: id === defaultId,
+        });
+      }
+    }
+
+    // Jika belum ada perangkat yang diklaim di mock store, otomatis klaim defaultId untuk user ini
+    if (!hasClaimed) {
+      const defDev = getOrCreateMockDevice(defaultId);
+      if (!defDev.meta?.owner_uid || defDev.meta.owner_uid === ownerUid) {
+        defDev.meta.owner_uid = ownerUid;
+        defDev.meta.claimed_at = new Date().toISOString();
+        result.push({
+          deviceId: defaultId,
+          deviceName: defDev.settings?.device_name || 'Kolam Utama',
+          online: Boolean(defDev.status?.online),
+          lastSeen: defDev.status?.last_seen || null,
+          ph: defDev.status?.ph ?? null,
+          phStatus: defDev.status?.ph_status || 'aman',
+          pumpStatus: defDev.status?.pump_status || 'off',
+          claimedAt: defDev.meta.claimed_at,
+          isDefault: true,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Mendaftarkan / mengklaim perangkat baru untuk pengguna
+   */
+  async claimDevice(deviceId, ownerUid, deviceName, secretKey) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    // Cek apakah perangkat sudah dimiliki orang lain
+    const existingOwner = await this.getDeviceOwner(id);
+    if (existingOwner && existingOwner !== ownerUid) {
+      const err = new Error(`Perangkat '${id}' sudah terdaftar oleh pengguna lain.`);
+      err.status = 409;
+      err.code = 'DEVICE_ALREADY_REGISTERED';
+      throw err;
+    }
+
+    // Tetapkan pemilik perangkat
+    await this.setDeviceOwner(id, ownerUid);
+
+    // Tetapkan nama perangkat jika diberikan
+    if (deviceName) {
+      await this.updateSettings(id, { device_name: deviceName });
+    }
+
+    // Tetapkan kunci rahasia unik jika diberikan
+    if (secretKey) {
+      await this.setDeviceSecret(id, secretKey);
+    }
+
+    const status = await this.getStatus(id);
+    const settings = await this.getSettings(id);
+
+    return {
+      deviceId: id,
+      deviceName: settings?.device_name || id,
+      online: Boolean(status?.online),
+      lastSeen: status?.last_seen || null,
+      ph: status?.ph ?? null,
+      phStatus: status?.ph_status || 'aman',
+      pumpStatus: status?.pump_status || 'off',
+      claimedAt: new Date().toISOString(),
+      isDefault: id === config.device.defaultDeviceId,
+    };
+  }
+
+  /**
+   * Melepas tautan perangkat dari pengguna
+   */
+  async unpairDevice(deviceId, ownerUid) {
+    this.assertDatabaseAvailable();
+    const id = this.getEffectiveDeviceId(deviceId);
+
+    const existingOwner = await this.getDeviceOwner(id);
+    if (existingOwner && existingOwner !== ownerUid) {
+      const err = new Error(`Akses ditolak: Anda bukan pemilik perangkat '${id}'.`);
+      err.status = 403;
+      err.code = 'DEVICE_ACCESS_DENIED';
+      throw err;
+    }
+
+    // Reset owner_uid menjadi null
+    if (hasDatabaseAccess()) {
+      try {
+        const db = getAdminDatabase();
+        if (db) {
+          await db.ref(`devices/${id}/meta/owner_uid`).remove();
+          await db.ref(`user_devices/${ownerUid}/${id}`).remove();
+        }
+      } catch (err) {
+        this.handleDatabaseError('melepas tautan perangkat', err);
+      }
+    }
+
+    const dev = getOrCreateMockDevice(id);
+    if (dev.meta) {
+      dev.meta.owner_uid = null;
+    }
+
+    return true;
+  }
 }
 
 export const deviceRepository = new DeviceRepository();

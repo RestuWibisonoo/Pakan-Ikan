@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Droplets, Power, Activity, Clock, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Droplets, Power, Activity, Clock, Loader2, Cpu } from 'lucide-react';
 import iotApi from '../services/iotApi';
 
 export default function Dashboard() {
@@ -10,6 +11,8 @@ export default function Dashboard() {
   const [isPumpOn, setIsPumpOn] = useState(false);
   const [nextSchedule, setNextSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deviceName, setDeviceName] = useState('');
+  const activeDeviceId = iotApi.getActiveDeviceId() || 'fish-feeder-001';
 
   // Ambil data status real-time dan jadwal berikutnya dari Backend IoT API v1
   useEffect(() => {
@@ -34,6 +37,10 @@ export default function Dashboard() {
               ? new Date(st.last_seen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
               : 'Baru saja'
           );
+        }
+
+        if (statusRes?.data?.settings?.device_name) {
+          setDeviceName(statusRes.data.settings.device_name);
         }
 
         // Hitung jadwal aktif berikutnya berdasarkan waktu lokal saat ini
@@ -117,6 +124,35 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* Device Info Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <Link
+          to="/devices"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            textDecoration: 'none',
+            color: 'var(--text-muted)',
+            fontSize: '0.8rem',
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid var(--border)',
+            padding: '4px 10px',
+            borderRadius: '20px',
+            transition: 'all 0.2s',
+          }}
+          title="Klik untuk beralih atau kelola perangkat"
+        >
+          <Cpu size={14} color="var(--primary)" />
+          <span>
+            Kolam: <strong style={{ color: 'var(--text-main)' }}>{deviceName || activeDeviceId}</strong>
+          </span>
+        </Link>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          Update: {lastUpdate}
+        </span>
+      </div>
+
       {/* pH Main Card */}
       <div className="card glass-panel" style={{ textAlign: 'center' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
