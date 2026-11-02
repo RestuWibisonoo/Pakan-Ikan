@@ -59,3 +59,21 @@ Dokumen ini merupakan catatan riwayat pengembangan terpusat (*central developmen
 - **Isu Diketahui (*Known Issues*):** Kredensial privat service account `serviceAccountKey.json` belum diletakkan di server lokal (beroperasi menggunakan fallback aman yang tervalidasi).
 - **Pekerjaan Tersisa (*Remaining Work*):** Pengunggahan `serviceAccountKey.json` ke server produksi saat domain dan hosting siap.
 - **Laporan Detail:** [03-iot-database-architecture.md](./reports/03-iot-database-architecture.md)
+
+---
+
+### [Tugas 04] Audit Menyeluruh Integrasi, Keamanan, dan Keandalan
+- **Tanggal:** 2026-11-02
+- **Objektif:** Menjalankan audit sistem secara menyeluruh dari frontend, backend, Firebase Auth, Realtime Database, hingga integrasi hardware ESP32 sebelum implementasi fitur baru atau uji fisik.
+- **Status Implementasi:** Completed
+- **Temuan Utama:**
+  - 10 temuan teridentifikasi: 2 Critical (IDOR kepemilikan perangkat & silent mock fallback di production), 3 High (tanpa rate limiting di rute IoT, log aksi sukses prematur, dan penimpaan pending command), 3 Medium (frontend mock masking pada empty state, tanpa deteksi timeout offline, dan pertumbuhan log tanpa batas), 2 Low (shared device secret & bundle size).
+- **Berkas Utama:**
+  - `docs/reports/04-integration-security-reliability-audit.md`
+- **Pengujian & Hasil:**
+  - `npm test` di `server/`: 43/43 tes lulus 100%.
+  - `npm run lint`: 0 errors, 0 warnings.
+  - `npm run build`: Sukses (204ms).
+- **Pekerjaan Tersisa (*Remaining Work*):** Melakukan eksekusi perbaikan bertahap sesuai prioritas P0 (CRITICAL) hingga P3 (LOW) yang telah dirumuskan.
+- **Laporan Detail:** [04-integration-security-reliability-audit.md](./reports/04-integration-security-reliability-audit.md)
+

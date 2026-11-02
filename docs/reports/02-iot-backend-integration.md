@@ -112,3 +112,4 @@
 
 ## I. Final Status
 **Completed** (Seluruh fungsionalitas backend IoT, kontrol aktuator, jadwal, validasi, dan integrasi frontend telah selesai dan teruji secara otomatis).
+
