@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import { Home, CalendarClock, History as HistoryIcon, Settings, Fish, Cpu } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import InstallPrompt from './components/InstallPrompt';
 import iotApi from './services/iotApi';
 
 // Pages
@@ -169,6 +170,7 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <InstallPrompt />
       {showNavAndHeader && <BottomNavigation />}
     </div>
   );

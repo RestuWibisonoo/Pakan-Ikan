@@ -1,0 +1,32 @@
+{
+  "name": "Pakan Ikan - Otomasi Pakan & Monitoring pH",
+  "short_name": "Pakan Ikan",
+  "description": "Aplikasi Otomatisasi Pemberian Pakan Ikan dan Pemantauan Kualitas Air Kolam secara Real-Time",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0284c7",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
+

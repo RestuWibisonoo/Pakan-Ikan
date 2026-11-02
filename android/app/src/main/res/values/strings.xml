@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pakan Ikan</string>
+    <string name="title_activity_main">Pakan Ikan</string>
+    <string name="package_name">id.my.pakan_ikan</string>
+    <string name="custom_url_scheme">id.my.pakan_ikan</string>
+</resources>
