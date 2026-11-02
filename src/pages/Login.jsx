@@ -1,27 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Loader2 } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState(location.state?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState(location.state?.message || '');
   const [loading, setLoading] = useState(false);
 
-  const { login, getFriendlyErrorMessage } = useAuth();
+  const { login, getFriendlyErrorMessage, isAuthenticated, isEmailVerified } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   // URL yang dituju sebelum dialihkan ke login (jika ada)
   const from = location.state?.from?.pathname || '/';
 
+  // Perbarui state jika location.state berubah (misal dialihkan setelah verifikasi email)
+  useEffect(() => {
+    if (location.state?.email) {
+      setEmail(location.state.email);
+    }
+    if (location.state?.message) {
+      setSuccessMessage(location.state.message);
+    }
+  }, [location.state]);
+
+  // Jika sudah terotentikasi dan terverifikasi secara penuh, langsung masuk dashboard
+  useEffect(() => {
+    if (isAuthenticated && isEmailVerified && !location.state?.verifiedSuccess) {
+      navigate(from, { replace: true });
+    }
+  }, [isAuthenticated, isEmailVerified, from, navigate, location.state]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
 
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) {
@@ -60,6 +79,27 @@ export default function Login() {
       title="Selamat Datang"
       subtitle="Masuk untuk memantau pakan ikan & pH air secara real-time"
     >
+      {successMessage && (
+        <div
+          style={{
+            background: 'rgba(16, 185, 129, 0.12)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            color: '#86efac',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            fontSize: '0.875rem',
+            marginBottom: '18px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            lineHeight: 1.4,
+          }}
+        >
+          <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+          <span>{successMessage}</span>
+        </div>
+      )}
+
       {error && (
         <div
           style={{

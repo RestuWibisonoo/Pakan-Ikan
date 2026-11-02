@@ -83,6 +83,7 @@ export default function Register() {
         replace: true,
         state: {
           isNewRegistration: true,
+          email: cleanEmail,
           message: 'Pendaftaran akun Pakan Ikan berhasil! Kami telah mengirimkan email verifikasi.',
         },
       });

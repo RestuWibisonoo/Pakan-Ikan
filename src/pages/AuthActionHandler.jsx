@@ -99,6 +99,20 @@ export default function AuthActionHandler() {
         .then(() => {
           setSuccess(true);
           setLoading(false);
+
+          // Siarkan event verifikasi ke tab lain (Tab 1 registrasi / verify-email)
+          try {
+            const bc = new BroadcastChannel('pakan_ikan_auth');
+            bc.postMessage({ type: 'EMAIL_VERIFIED', timestamp: Date.now() });
+            bc.close();
+          } catch {
+            // Abaikan jika tidak didukung
+          }
+          try {
+            localStorage.setItem('pakan_ikan_email_verified_event', Date.now().toString());
+          } catch {
+            // Abaikan jika storage diblokir
+          }
         })
         .catch((err) => {
           if (err.code === 'auth/expired-action-code') {

@@ -146,11 +146,20 @@ export function AuthProvider({ children }) {
 
   // Reload data user untuk memeriksa apakah email sudah diverifikasi
   const reloadUser = async () => {
-    if (auth.currentUser) {
-      await auth.currentUser.reload();
-      const refreshed = auth.currentUser;
-      setUser(refreshed);
-      return refreshed.emailVerified;
+    try {
+      if (auth.currentUser) {
+        await auth.currentUser.reload();
+        const refreshed = auth.currentUser;
+        // Buat clone dengan prototype agar React mengenali perubahan referensi objek
+        const userClone = Object.assign(
+          Object.create(Object.getPrototypeOf(refreshed)),
+          refreshed
+        );
+        setUser(userClone);
+        return Boolean(refreshed.emailVerified);
+      }
+    } catch (err) {
+      console.warn('[AuthContext] reloadUser gagal:', err?.message || err);
     }
     return false;
   };

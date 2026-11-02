@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MailCheck, RefreshCw, LogOut, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,12 +15,129 @@ export default function VerifyEmail() {
   const [infoMessage, setInfoMessage] = useState(location.state?.message || '');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Jika sudah terverifikasi, arahkan ke dashboard
+  const displayEmail = user?.email || location.state?.email || 'Alamat email Anda';
+  const hasRedirectedRef = useRef(false);
+
+  // Alihkan ke halaman login dengan pesan sukses dan email terisi
+  const handleVerificationSuccess = useCallback(async () => {
+    if (hasRedirectedRef.current) return;
+    hasRedirectedRef.current = true;
+
+    const targetEmail = user?.email || location.state?.email || '';
+    try {
+      await logout();
+    } catch {
+      // Abaikan jika tidak ada sesi aktif
+    }
+
+    navigate('/login', {
+      replace: true,
+      state: {
+        verifiedSuccess: true,
+        email: targetEmail,
+        message: 'Email berhasil diverifikasi! Silakan masuk dengan akun Pakan Ikan Anda.',
+      },
+    });
+  }, [user, location.state, logout, navigate]);
+
+  // 1. Cek langsung jika status isEmailVerified di context sudah true
   useEffect(() => {
     if (isEmailVerified) {
-      navigate('/', { replace: true });
+      handleVerificationSuccess();
     }
-  }, [isEmailVerified, navigate]);
+  }, [isEmailVerified, handleVerificationSuccess]);
+
+  // 2. Polling latar belakang setiap 3 detik untuk mendeteksi verifikasi dari tab lain atau HP
+  useEffect(() => {
+    let isCancelled = false;
+
+    const pollInterval = setInterval(async () => {
+      if (hasRedirectedRef.current || isCancelled) return;
+      try {
+        const verified = await reloadUser();
+        if (verified && !isCancelled) {
+          clearInterval(pollInterval);
+          await handleVerificationSuccess();
+        }
+      } catch {
+        // Abaikan error saat background polling
+      }
+    }, 3000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(pollInterval);
+    };
+  }, [reloadUser, handleVerificationSuccess]);
+
+  // 3. Listener saat tab kembali aktif (focus / visibilitychange)
+  useEffect(() => {
+    let isCancelled = false;
+
+    const checkStatus = async () => {
+      if (hasRedirectedRef.current || isCancelled) return;
+      try {
+        const verified = await reloadUser();
+        if (verified && !isCancelled) {
+          await handleVerificationSuccess();
+        }
+      } catch {
+        // Abaikan
+      }
+    };
+
+    const handleFocus = () => {
+      checkStatus();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkStatus();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [reloadUser, handleVerificationSuccess]);
+
+  // 4. Sinkronisasi antar-tab (BroadcastChannel & LocalStorage event)
+  useEffect(() => {
+    let isCancelled = false;
+    let bc;
+
+    try {
+      bc = new BroadcastChannel('pakan_ikan_auth');
+      bc.onmessage = async (e) => {
+        if (e.data?.type === 'EMAIL_VERIFIED' && !isCancelled) {
+          await reloadUser();
+          await handleVerificationSuccess();
+        }
+      };
+    } catch {
+      // BroadcastChannel mungkin tidak tersedia di browser lawas
+    }
+
+    const handleStorageEvent = async (e) => {
+      if (e.key === 'pakan_ikan_email_verified_event' && !isCancelled) {
+        await reloadUser();
+        await handleVerificationSuccess();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageEvent);
+
+    return () => {
+      isCancelled = true;
+      if (bc) bc.close();
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, [reloadUser, handleVerificationSuccess]);
 
   // Timer countdown untuk kirim ulang email
   useEffect(() => {
@@ -31,14 +148,14 @@ export default function VerifyEmail() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Cek apakah email sudah diverifikasi pengguna
+  // Tombol Manual: "Saya Sudah Verifikasi"
   const handleCheckVerification = async () => {
     setChecking(true);
     setErrorMessage('');
     try {
       const verified = await reloadUser();
       if (verified) {
-        navigate('/', { replace: true });
+        await handleVerificationSuccess();
       } else {
         setErrorMessage(
           'Email belum terverifikasi. Silakan buka kotak masuk email Anda dan klik tautan verifikasi yang telah dikirimkan.'
@@ -61,7 +178,7 @@ export default function VerifyEmail() {
     try {
       await sendVerificationEmail();
       setInfoMessage('Tautan verifikasi baru berhasil dikirim ke email Anda.');
-      setResendCooldown(5); // Cooldown hanya 5 detik untuk memudahkan testing
+      setResendCooldown(5); // Cooldown 5 detik untuk testing
     } catch (err) {
       console.error('[VerifyEmail] Error resend:', err);
       const detailedMsg = err.message || (err.code ? `Error: ${err.code}` : 'Gagal mengirim email verifikasi.');
@@ -117,7 +234,7 @@ export default function VerifyEmail() {
             marginBottom: '20px',
           }}
         >
-          {user?.email || 'Alamat email Anda'}
+          {displayEmail}
         </div>
 
         {infoMessage && (
