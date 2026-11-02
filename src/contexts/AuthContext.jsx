@@ -87,7 +87,12 @@ export function AuthProvider({ children }) {
         await authApi.sendCustomVerificationEmail(credential.user);
       } catch (backendErr) {
         console.warn('Backend custom email tidak tersedia, beralih ke Firebase bawaan:', backendErr?.message || backendErr);
-        await sendEmailVerification(credential.user);
+        try {
+          await sendEmailVerification(credential.user);
+        } catch (fbErr) {
+          console.warn('Gagal mengirim verifikasi bawaan Firebase:', fbErr?.message || fbErr);
+          // Akun sudah berhasil dibuat di Firebase Auth, jangan batalkan registrasi
+        }
       }
     }
 

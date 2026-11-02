@@ -74,12 +74,28 @@ export async function createEmailVerificationLink(email, continueUrl = null) {
     ? continueUrl
     : `${config.frontendUrl}/login`;
 
-  const actionCodeSettings = {
-    url: targetContinueUrl,
-    handleCodeInApp: true,
-  };
+  const defaultFirebaseDomain = `https://${config.firebase.projectId}.firebaseapp.com`;
 
-  const rawLink = await adminAuth.generateEmailVerificationLink(email, actionCodeSettings);
+  let rawLink;
+  try {
+    const actionCodeSettings = {
+      url: targetContinueUrl,
+      handleCodeInApp: true,
+    };
+    rawLink = await adminAuth.generateEmailVerificationLink(email, actionCodeSettings);
+  } catch (err) {
+    if (err.message && (err.message.includes('not allowlisted') || err.message.includes('authorized domains'))) {
+      console.warn(`[LinkService] Domain ${targetContinueUrl} belum di-allowlist di Firebase Console. Menggunakan fallback domain default proyek.`);
+      const fallbackSettings = {
+        url: `${defaultFirebaseDomain}/login`,
+        handleCodeInApp: true,
+      };
+      rawLink = await adminAuth.generateEmailVerificationLink(email, fallbackSettings);
+    } else {
+      throw err;
+    }
+  }
+
   return extractAndBuildCustomActionUrl(rawLink, targetContinueUrl);
 }
 
@@ -95,12 +111,28 @@ export async function createPasswordResetLink(email, continueUrl = null) {
     ? continueUrl
     : `${config.frontendUrl}/login`;
 
-  const actionCodeSettings = {
-    url: targetContinueUrl,
-    handleCodeInApp: true,
-  };
+  const defaultFirebaseDomain = `https://${config.firebase.projectId}.firebaseapp.com`;
 
-  const rawLink = await adminAuth.generatePasswordResetLink(email, actionCodeSettings);
+  let rawLink;
+  try {
+    const actionCodeSettings = {
+      url: targetContinueUrl,
+      handleCodeInApp: true,
+    };
+    rawLink = await adminAuth.generatePasswordResetLink(email, actionCodeSettings);
+  } catch (err) {
+    if (err.message && (err.message.includes('not allowlisted') || err.message.includes('authorized domains'))) {
+      console.warn(`[LinkService] Domain ${targetContinueUrl} belum di-allowlist di Firebase Console. Menggunakan fallback domain default proyek.`);
+      const fallbackSettings = {
+        url: `${defaultFirebaseDomain}/login`,
+        handleCodeInApp: true,
+      };
+      rawLink = await adminAuth.generatePasswordResetLink(email, fallbackSettings);
+    } else {
+      throw err;
+    }
+  }
+
   return extractAndBuildCustomActionUrl(rawLink, targetContinueUrl);
 }
 
