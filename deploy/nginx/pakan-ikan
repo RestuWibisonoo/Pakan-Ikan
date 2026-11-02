@@ -91,11 +91,34 @@ server {
     }
 
     # --------------------------------------------------------------------------
-    # 2. Static Asset Caching (Aset ber-hash unik dari build Vite)
+    # 2. Static Asset Caching & PWA Header Hardening
     # --------------------------------------------------------------------------
-    location ~* \.(?:css|js|jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|woff2|woff)$ {
+    # Khusus Service Worker: jangan dicache browser agar update PWA langsung aktif
+    location = /sw.js {
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # Manifest PWA
+    location = /manifest.json {
+        expires 5m;
+        add_header Cache-Control "public, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # Aset ber-hash unik dari build Vite (/assets/*)
+    location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # Icon dan asset root lainnya (cache 1 jam dengan revalidasi)
+    location ~* \.(?:css|js|jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|woff2|woff)$ {
+        expires 1h;
+        add_header Cache-Control "public, must-revalidate";
         access_log off;
         try_files $uri =404;
     }

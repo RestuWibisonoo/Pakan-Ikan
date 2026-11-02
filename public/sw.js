@@ -1,12 +1,13 @@
-// Service Worker Pakan Ikan
-const CACHE_NAME = 'pakan-ikan-cache-v1';
+// Service Worker Pakan Ikan v2
+const CACHE_NAME = 'pakan-ikan-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
   '/favicon.svg',
-  '/pwa-192x192.png',
-  '/pwa-512x512.png',
+  '/app-icon-192.png',
+  '/app-icon-512.png',
+  '/app-icon-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -30,7 +31,6 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Hanya tangani GET requests untuk halaman dan aset statis
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
@@ -68,4 +68,3 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
-
