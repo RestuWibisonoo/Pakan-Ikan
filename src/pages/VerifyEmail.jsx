@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MailCheck, RefreshCw, LogOut, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { MailCheck, RefreshCw, LogOut, CheckCircle2, AlertCircle, Loader2, Clock } from 'lucide-react';
 import { auth } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/AuthLayout';
@@ -12,7 +12,9 @@ export default function VerifyEmail() {
 
   const [checking, setChecking] = useState(false);
   const [resending, setResending] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(
+    location.state?.isNewRegistration ? 60 : 0
+  );
   const [infoMessage, setInfoMessage] = useState(location.state?.message || '');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -172,6 +174,13 @@ export default function VerifyEmail() {
     }
   };
 
+  // Format tampilan detik ke format menit:detik (MM:SS)
+  const formatCooldown = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+  };
+
   // Kirim ulang email verifikasi
   const handleResend = async () => {
     if (resendCooldown > 0) return;
@@ -182,7 +191,7 @@ export default function VerifyEmail() {
     try {
       await sendVerificationEmail();
       setInfoMessage('Tautan verifikasi baru berhasil dikirim ke email Anda.');
-      setResendCooldown(5); // Cooldown 5 detik untuk testing
+      setResendCooldown(60); // Jeda 1 menit (60 detik)
     } catch (err) {
       console.error('[VerifyEmail] Error resend:', err);
       const detailedMsg = err.message || (err.code ? `Error: ${err.code}` : 'Gagal mengirim email verifikasi.');
@@ -318,11 +327,30 @@ export default function VerifyEmail() {
                 <span>Mengirim Ulang...</span>
               </>
             ) : resendCooldown > 0 ? (
-              <span>Kirim Ulang ({resendCooldown}s)</span>
+              <>
+                <Clock size={16} />
+                <span>Kirim Ulang ({formatCooldown(resendCooldown)})</span>
+              </>
             ) : (
               <span>Kirim Ulang Email Verifikasi</span>
             )}
           </button>
+
+          {resendCooldown > 0 && (
+            <p
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                margin: '2px 0 0 0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+            >
+              <span>Jeda {resendCooldown} detik sebelum dapat mengirim ulang tautan baru</span>
+            </p>
+          )}
         </div>
 
         <div
