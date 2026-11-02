@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MailCheck, RefreshCw, LogOut, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { auth } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 
@@ -18,27 +19,27 @@ export default function VerifyEmail() {
   const displayEmail = user?.email || location.state?.email || 'Alamat email Anda';
   const hasRedirectedRef = useRef(false);
 
-  // Alihkan ke halaman login dengan pesan sukses dan email terisi
-  const handleVerificationSuccess = useCallback(async () => {
+  // Alihkan langsung login ke Dashboard jika sesi aktif, atau ke halaman login jika sesi tidak aktif
+  const handleVerificationSuccess = useCallback(() => {
     if (hasRedirectedRef.current) return;
     hasRedirectedRef.current = true;
 
-    const targetEmail = user?.email || location.state?.email || '';
-    try {
-      await logout();
-    } catch {
-      // Abaikan jika tidak ada sesi aktif
+    // Jika user memiliki sesi aktif setelah registrasi/login, langsung masuk ke Dashboard!
+    if (auth.currentUser || user) {
+      navigate('/', { replace: true });
+    } else {
+      // Jika sesi tidak aktif, arahkan ke halaman login dengan email terisi
+      const targetEmail = location.state?.email || '';
+      navigate('/login', {
+        replace: true,
+        state: {
+          verifiedSuccess: true,
+          email: targetEmail,
+          message: 'Email berhasil diverifikasi! Silakan masuk dengan akun Pakan Ikan Anda.',
+        },
+      });
     }
-
-    navigate('/login', {
-      replace: true,
-      state: {
-        verifiedSuccess: true,
-        email: targetEmail,
-        message: 'Email berhasil diverifikasi! Silakan masuk dengan akun Pakan Ikan Anda.',
-      },
-    });
-  }, [user, location.state, logout, navigate]);
+  }, [user, location.state, navigate]);
 
   // 1. Cek langsung jika status isEmailVerified di context sudah true
   useEffect(() => {

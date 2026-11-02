@@ -296,14 +296,16 @@ export default function AuthActionHandler() {
             className="btn btn-primary"
             style={{ width: '100%', padding: '14px' }}
             onClick={() => {
-              if (safeContinueUrl.startsWith('/')) {
+              if (auth.currentUser) {
+                navigate('/', { replace: true });
+              } else if (safeContinueUrl.startsWith('/')) {
                 navigate(safeContinueUrl, { replace: true });
               } else {
                 window.location.href = safeContinueUrl;
               }
             }}
           >
-            <span>Masuk ke Akun Pakan Ikan</span>
+            <span>Masuk ke Dashboard Pakan Ikan</span>
             <ArrowRight size={18} />
           </button>
         </div>
