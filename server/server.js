@@ -23,7 +23,12 @@ app.use(
     origin: (origin, callback) => {
       // Izinkan request tanpa origin (seperti curl, mobile apps, server-to-server)
       if (!origin) return callback(null, true);
-      if (config.corsOrigins.includes(origin) || config.isDev) {
+      if (
+        config.corsOrigins.includes(origin) ||
+        origin === 'https://pakan-ikan.my.id' ||
+        origin.endsWith('.pakan-ikan.my.id') ||
+        config.isDev
+      ) {
         return callback(null, true);
       }
       return callback(new Error('Origin tidak diizinkan oleh kebijakan CORS Pakan Ikan.'));
