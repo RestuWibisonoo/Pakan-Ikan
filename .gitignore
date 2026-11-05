@@ -31,8 +31,34 @@ server/.env.*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.swo
+
+# Arduino & ESP32 Build Outputs
+*.bin
+*.hex
+*.elf
+*.eep
+*.lst
+*.map
+.arduino/
+.arduino15/
+
+# Android Local Build Outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/local.properties
+android/captures/
+.externalNativeBuild/
+.cxx/
+

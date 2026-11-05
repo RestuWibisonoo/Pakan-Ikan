@@ -48,8 +48,6 @@ export default function AuthActionHandler() {
     }
   };
 
-  const safeContinueUrl = getSafeContinueUrl();
-
   const isMissingParams = !oobCode || !mode;
   const isSupportedMode = mode === 'verifyEmail' || mode === 'resetPassword';
 

@@ -9,11 +9,8 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
-  KeyRound,
   Terminal,
-  Activity,
   Layers,
-  HelpCircle,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';

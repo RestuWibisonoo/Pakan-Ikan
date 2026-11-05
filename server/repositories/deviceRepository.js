@@ -13,10 +13,10 @@ const mockStore = {
         owner_uid: null, // Dinamis diisi oleh pengguna pertama yang mengklaim
       },
       status: {
-        online: true,
-        last_seen: new Date().toISOString(),
-        ph: 7.2,
-        ph_status: 'aman',
+        online: false,
+        last_seen: null,
+        ph: null,
+        ph_status: 'menunggu',
         pump_status: 'off',
         servo_status: 'idle',
       },
@@ -27,24 +27,14 @@ const mockStore = {
         pump_duration_ms: 5000,
         device_name: 'Kolam Utama',
       },
-      schedules: {
-        'sched_1': { id: 'sched_1', time: '07:00', label: 'Pagi', active: true },
-        'sched_2': { id: 'sched_2', time: '17:00', label: 'Sore', active: true },
-      },
+      schedules: {},
       commands: {
         queue: {},
         history: {},
       },
       logs: {
-        ph_logs: [
-          { id: 'ph_1', value: 7.2, status: 'aman', timestamp: new Date(Date.now() - 3600000).toISOString() },
-          { id: 'ph_2', value: 7.1, status: 'aman', timestamp: new Date(Date.now() - 7200000).toISOString() },
-          { id: 'ph_3', value: 6.9, status: 'aman', timestamp: new Date(Date.now() - 10800000).toISOString() },
-        ],
-        action_logs: [
-          { id: 'act_1', type: 'feed', action: 'Auto Feed', status: 'success', timestamp: new Date(Date.now() - 3600000).toISOString() },
-          { id: 'act_2', type: 'pump', action: 'Manual ON', status: 'success', timestamp: new Date(Date.now() - 7200000).toISOString() },
-        ],
+        ph_logs: [],
+        action_logs: [],
       },
     },
   },

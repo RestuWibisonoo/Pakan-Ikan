@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MailCheck, RefreshCw, LogOut, CheckCircle2, AlertCircle, Loader2, Clock } from 'lucide-react';
-import { auth } from '../firebase/config';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 

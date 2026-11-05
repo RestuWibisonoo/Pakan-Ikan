@@ -29,13 +29,13 @@ export default function Dashboard() {
 
         if (statusRes?.data?.status) {
           const st = statusRes.data.status;
-          setPh(Number(st.ph || 7.0));
-          setPhStatus(st.ph_status || 'aman');
+          setPh(st.ph !== null && st.ph !== undefined ? Number(st.ph) : null);
+          setPhStatus(st.ph_status || (st.ph !== null && st.ph !== undefined ? 'aman' : 'menunggu'));
           setIsPumpOn(st.pump_status === 'on');
           setLastUpdate(
             st.last_seen
               ? new Date(st.last_seen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-              : 'Baru saja'
+              : 'Belum ada data'
           );
         }
 
@@ -117,6 +117,8 @@ export default function Dashboard() {
         return <span className="badge badge-warning">Terlalu Asam</span>;
       case 'basa':
         return <span className="badge badge-danger">Terlalu Basa</span>;
+      case 'menunggu':
+        return <span className="badge badge-neutral">Menunggu Alat</span>;
       default:
         return <span className="badge badge-neutral">Normal</span>;
     }
@@ -159,21 +161,25 @@ export default function Dashboard() {
           <span className="card-title" style={{ margin: 0 }}>
             Kualitas Air (pH)
           </span>
-          {ph !== null && getStatusBadge()}
+          {getStatusBadge()}
         </div>
 
         <div className="value-display">
           <div className="value-number">
             {loading && ph === null ? (
               <Loader2 size={36} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+            ) : ph !== null ? (
+              ph.toFixed(1)
             ) : (
-              (ph ?? 7.0).toFixed(1)
+              '--'
             )}
           </div>
-          <div className="value-label">Update: {lastUpdate}</div>
+          <div className="value-label">
+            {ph !== null ? `Update: ${lastUpdate}` : 'Menunggu koneksi & pembacaan sensor probe ESP32'}
+          </div>
         </div>
 
-        {phStatus !== 'aman' && ph !== null && (
+        {(phStatus === 'asam' || phStatus === 'basa') && ph !== null && (
           <div
             style={{
               background: 'rgba(245, 158, 11, 0.1)',
