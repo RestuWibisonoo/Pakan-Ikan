@@ -358,6 +358,23 @@ export default function Devices() {
           )}
 
           <form onSubmit={handleRegisterDevice}>
+            {/* Tombol Isi Otomatis Preset Firmware */}
+            <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ fontSize: '0.75rem', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => {
+                  setNewDeviceId('fish-feeder-001');
+                  setNewDeviceName('Kolam Utama (ESP32)');
+                  setNewDeviceKey('pakan-ikan-secret-2026');
+                }}
+              >
+                <Cpu size={14} color="var(--primary)" />
+                <span>Gunakan Preset Default Firmware (.INO)</span>
+              </button>
+            </div>
+
             {/* Input Device ID */}
             <div className="input-group" style={{ marginBottom: '14px' }}>
               <label className="input-label" htmlFor="device-id">
@@ -367,13 +384,13 @@ export default function Devices() {
                 id="device-id"
                 type="text"
                 className="input-field"
-                placeholder="misal: fish-feeder-002 atau esp32-kolam-01"
+                placeholder="misal: fish-feeder-001 (sesuai DEVICE_ID di config.h)"
                 value={newDeviceId}
                 onChange={(e) => setNewDeviceId(e.target.value)}
                 required
               />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                Hanya huruf, angka, tanda hubung (-), dan garis bawah (_). Panjang 3-64 karakter.
+                Wajib sama persis dengan <code>#define DEVICE_ID</code> di berkas <code>kode-ino/config.h</code>.
               </span>
             </div>
 
@@ -386,27 +403,27 @@ export default function Devices() {
                 id="device-name"
                 type="text"
                 className="input-field"
-                placeholder="misal: Kolam Nila Belakang atau Kolam Utama"
+                placeholder="misal: Kolam Utama atau Kolam Nila"
                 value={newDeviceName}
                 onChange={(e) => setNewDeviceName(e.target.value)}
               />
             </div>
 
-            {/* Input Secret Key (Opsional) */}
+            {/* Input Secret Key */}
             <div className="input-group" style={{ marginBottom: '20px' }}>
               <label className="input-label" htmlFor="device-key">
-                Kunci Rahasia Perangkat (Opsional / Per-Device Secret)
+                Kunci Rahasia Perangkat (Header X-Device-Key)
               </label>
               <input
                 id="device-key"
                 type="text"
                 className="input-field"
-                placeholder="Kosongkan jika menggunakan kunci standar sistem"
+                placeholder="Default: pakan-ikan-secret-2026 (sesuai DEVICE_KEY di config.h)"
                 value={newDeviceKey}
                 onChange={(e) => setNewDeviceKey(e.target.value)}
               />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                Digunakan untuk otentikasi header <code>X-Device-Key</code> dari hardware.
+                Samakan dengan <code>#define DEVICE_KEY</code> di <code>kode-ino/config.h</code> (default: <code>pakan-ikan-secret-2026</code>).
               </span>
             </div>
 
@@ -439,23 +456,49 @@ export default function Devices() {
         </div>
       )}
 
-      {/* Panduan Integrasi Hardware ESP32 */}
+      {/* Panduan Integrasi Hardware ESP32 & Arduino Nano */}
       {showGuide && (
         <div
           className="card glass-panel"
           style={{
             marginBottom: '24px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1px solid rgba(14, 165, 233, 0.4)',
+            background: 'rgba(15, 23, 42, 0.95)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Terminal size={18} color="var(--primary)" />
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>Panduan Konfigurasi Hardware ESP32</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Terminal size={18} color="var(--primary)" />
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
+                Panduan Firmware ESP32 (.INO) & Pinout Nano
+              </h3>
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => {
+                const devId = activeDevice?.deviceId || 'fish-feeder-001';
+                const snippet = `const char* ssid = "redmi 15";\nconst char* password = "06062003";\nconst char* serverUrl = "https://pakan-ikan.my.id";\nconst char* deviceId = "${devId}";\nconst char* deviceKey = "pakan-ikan-secret-2026";\nconst bool ENABLE_API = true;`;
+                handleCopy(snippet, 'arduino-config');
+              }}
+            >
+              {copiedId === 'arduino-config' ? (
+                <>
+                  <Check size={14} color="#86efac" />
+                  <span style={{ color: '#86efac' }}>Tersalin!</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={14} />
+                  <span>Salin Variabel .INO</span>
+                </>
+              )}
+            </button>
           </div>
 
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: '14px' }}>
-            Pada kode firmware Arduino IDE / PlatformIO perangkat ESP32 Anda, kirimkan permintaan HTTP dengan menyertakan header otentikasi berikut:
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: '12px' }}>
+            Kode firmware berada di berkas <code>kode-ino/esp32capstone.ino</code>. Pastikan variabel di baris 9–28 sudah sesuai dengan pengaturan berikut:
           </p>
 
           <div
@@ -472,18 +515,37 @@ export default function Devices() {
               marginBottom: '14px',
             }}
           >
-            <div>// Endpoint REST API Publik Gateway:</div>
-            <div style={{ color: '#f8fafc' }}>POST https://api.pakan-ikan.my.id/api/v1/device/telemetry</div>
+            <div>// ==========================================</div>
+            <div>// Berkas: kode-ino/esp32capstone.ino</div>
+            <div>// ==========================================</div>
+            <div style={{ color: '#fed7aa' }}>const char* ssid = &quot;redmi 15&quot;;</div>
+            <div style={{ color: '#fed7aa' }}>const char* password = &quot;06062003&quot;;</div>
+            <div style={{ color: '#a5f3fc' }}>const char* serverUrl = &quot;https://pakan-ikan.my.id&quot;;</div>
+            <div style={{ color: '#86efac' }}>const char* deviceId = &quot;{activeDevice?.deviceId || 'fish-feeder-001'}&quot;;</div>
+            <div style={{ color: '#86efac' }}>const char* deviceKey = &quot;pakan-ikan-secret-2026&quot;;</div>
+            <div style={{ color: '#f8fafc' }}>const bool ENABLE_API = true;</div>
             <br />
-            <div>// Header HTTP Wajib:</div>
-            <div style={{ color: '#a5f3fc' }}>Content-Type: application/json</div>
-            <div style={{ color: '#a5f3fc' }}>X-Device-Id: {activeDevice?.deviceId || 'fish-feeder-001'}</div>
-            <div style={{ color: '#a5f3fc' }}>X-Device-Key: &lt;KUNCI_RAHASIA_PERANGKAT&gt;</div>
-            <br />
-            <div>// Payload Body Telemetri:</div>
-            <div style={{ color: '#fed7aa' }}>
-              {JSON.stringify({ ph: 7.2, pump_status: 'off', servo_status: 'idle' }, null, 2)}
-            </div>
+            <div>// Pin Serial Hardware UART2 ke Arduino Nano:</div>
+            <div style={{ color: '#cbd5e1' }}>#define RX_ESP32 16 // Sambungkan ke TX Nano</div>
+            <div style={{ color: '#cbd5e1' }}>#define TX_ESP32 17 // Sambungkan ke RX Nano</div>
+          </div>
+
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
+              Wiring Sambungan Kabel Hardware:
+            </strong>
+            <ul style={{ margin: '0 0 10px 0', paddingLeft: '20px' }}>
+              <li>ESP32 GPIO 16 (RX2) &rarr; Pin TX Arduino Nano</li>
+              <li>ESP32 GPIO 17 (TX2) &rarr; Pin RX Arduino Nano</li>
+              <li>ESP32 GND &rarr; GND Arduino Nano (Wajib common ground)</li>
+            </ul>
+            <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
+              Protokol Komunikasi Dua Arah:
+            </strong>
+            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+              <li>Nano &rarr; ESP32: <code>DATA:&lt;ph&gt;,&lt;pompa&gt;,&lt;pakan&gt;,&lt;jam&gt;</code></li>
+              <li>Web &rarr; Nano: Perintah <code>CMD:PAKAN</code> (Servo) dan <code>CMD:AIR</code> (Relay Pompa)</li>
+            </ul>
           </div>
         </div>
       )}

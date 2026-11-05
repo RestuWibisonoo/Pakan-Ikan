@@ -1,28 +1,45 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include "config.h"
 
 // ==============================================================================
-// SISTEM MONITORING & KONTROL PAKAN IKAN (FIRMWARE ESP32)
+// 1. PENGATURAN KONEKSI WIFI
 // ==============================================================================
-// Arsitektur Komunikasi:
-//   Arduino Nano <--- UART2 (Serial2 9600 baud) ---> ESP32 <--- HTTPS REST API ---> Server Web
-//
-// Tugas Utama ESP32:
-//   1. Membaca telemetri sensor pH dan status aktuator dari Arduino Nano (Serial2).
-//   2. Mengirim data berkala ke endpoint backend: POST /api/v1/device/telemetry
-//   3. Mengambil perintah aksi manual/otomatis dari web: GET /api/v1/device/commands/pending
-//   4. Meneruskan perintah kontrol ke Nano: CMD:PAKAN atau CMD:AIR
-//   5. Melaporkan hasil eksekusi ke backend: POST /api/v1/device/commands/:id/result
+
+const char* ssid = "redmi 15";
+const char* password = "06062003";
+
 // ==============================================================================
+// 2. IDENTITAS PERANGKAT & SERVER API (PAKAN IKAN)
+// ==============================================================================
+
+// Alamat server backend utama
+const char* serverUrl = "https://pakan-ikan.my.id";
+
+// ID Perangkat unik (samakan dengan ID yang didaftarkan di menu /devices pada web/app)
+const char* deviceId = "fish-feeder-001";
+
+// Kunci rahasia perangkat untuk otentikasi header X-Device-Key
+const char* deviceKey = "pakan-ikan-secret-2026";
+
+// Flag pengaktifan API:
+// true  = Mengirim telemetri & menerima perintah dari website
+// false = Mode offline serial (hanya pengujian lokal di Serial Monitor)
+const bool ENABLE_API = true;
 
 // Endpoint rute API v1
-const char* pathTelemetry = "/api/v1/device/telemetry";
-const char* pathCommands  = "/api/v1/device/commands/pending";
+const char* endpointTelemetry = "/api/v1/device/telemetry";
+const char* endpointCommands  = "/api/v1/device/commands/pending";
 
 // ==============================================================================
-// VARIABEL STATUS SENSOR & BUFFER SERIAL NANO
+// 3. KOMUNIKASI SERIAL KE ARDUINO NANO
+// ==============================================================================
+
+#define RX_ESP32 16
+#define TX_ESP32 17
+
+// ==============================================================================
+// 4. DATA SENSOR & STATUS
 // ==============================================================================
 
 float nilaiPH = 0.0;
@@ -35,53 +52,54 @@ bool dataValid = false;
 String bufferNano = "";
 
 // ==============================================================================
-// TIMER & PENGENDALI INTERVAL NON-BLOCKING
+// 5. TIMER & INTERVAL PENGIRIMAN
 // ==============================================================================
 
-unsigned long waktuTerakhirKirim = 0;
-unsigned long waktuTerakhirPerintah = 0;
-unsigned long waktuTerakhirCekWiFi = 0;
+unsigned long waktuKirim = 0;
+unsigned long waktuPerintah = 0;
+unsigned long waktuWiFi = 0;
 
-// Pencegah eksekusi perintah duplikat
-String perintahTerakhirDieksekusi = "";
+const unsigned long intervalKirim = 5000;      // Kirim data pH setiap 5 detik
+const unsigned long intervalPerintah = 2000;   // Cek perintah web setiap 2 detik
+const unsigned long intervalWiFi = 10000;      // Cek koneksi WiFi setiap 10 detik
+
+// Pencegah eksekusi perintah berulang
+String perintahTerakhir = "";
 
 // ==============================================================================
-// MANAJEMEN KONEKSI WIFI NON-BLOCKING
+// 6. KONEKSI WIFI
 // ==============================================================================
 
-void hubungkanWiFi() {
+void koneksiWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
 
-  Serial.println("\n[WiFi] Memulai koneksi ke SSID: " + String(WIFI_SSID));
+  Serial.println("\n[WiFi] Menghubungkan ke hotspot...");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(ssid, password);
 
-  unsigned long mulaiKoneksi = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - mulaiKoneksi < 8000)) {
-    delay(250);
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - mulai < 10000) {
+    delay(300);
     Serial.print(".");
   }
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("[WiFi] SUKSES! Terhubung dengan jaringan.");
-    Serial.print("[WiFi] Alamat IP ESP32: ");
+    Serial.println("[WiFi] Terhubung!");
+    Serial.print("[WiFi] IP Address: ");
     Serial.println(WiFi.localIP());
-    Serial.print("[WiFi] Kekuatan Sinyal (RSSI): ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
   } else {
-    Serial.println("[WiFi] PERINGATAN: Belum dapat terhubung. Mencoba lagi nanti secara berkala...");
+    Serial.println("[WiFi] Gagal terhubung ke WiFi.");
   }
 }
 
 // ==============================================================================
-// PROTOKOL KOMUNIKASI SERIAL DENGAN ARDUINO NANO
+// 7. KOMUNIKASI DENGAN ARDUINO NANO
 // ==============================================================================
 
 void kirimPerintahNano(String perintah) {
   Serial2.println(perintah);
-  Serial.print("[Nano TX] Kirim Perintah -> ");
+  Serial.print("[Nano TX] -> ");
   Serial.println(perintah);
 }
 
@@ -89,40 +107,36 @@ void prosesDataNano(String data) {
   data.trim();
   if (!data.startsWith("DATA:")) return;
 
-  // Hapus header "DATA:"
-  data.remove(0, 5);
+  data.remove(0, 5); // Hapus awalan "DATA:"
 
-  // Format dari Nano: DATA:<ph>,<statusPompa>,<statusPakan>,<waktuRTC>
+  // Format: DATA:<ph>,<statusPompa>,<statusPakan>,<waktuRTC>
   int k1 = data.indexOf(',');
   int k2 = data.indexOf(',', k1 + 1);
   int k3 = data.indexOf(',', k2 + 1);
 
   if (k1 < 0 || k2 < 0 || k3 < 0) return;
 
-  String strPH = data.substring(0, k1);
-  float phParsed = strPH.toFloat();
+  String ph = data.substring(0, k1);
+  float phBaru = ph.toFloat();
 
-  // Validasi rentang fisik nilai pH (0.00 - 14.00)
-  if (phParsed < 0.0 || phParsed > 14.0) {
-    Serial.print("[Sensor] Peringatan: Nilai pH korup atau di luar jangkauan: ");
-    Serial.println(phParsed);
-    return;
-  }
+  if (phBaru < 0 || phBaru > 14) return;
 
-  nilaiPH = phParsed;
+  nilaiPH = phBaru;
   statusPompa = data.substring(k1 + 1, k2);
   statusPakan = data.substring(k2 + 1, k3);
   waktuRTC = data.substring(k3 + 1);
   dataValid = true;
 
-  Serial.println("\n-------------------------------------------");
-  Serial.println("           DATA TELEMETRI DARI NANO        ");
-  Serial.println("-------------------------------------------");
-  Serial.print("  Kualitas Air (pH)  : "); Serial.println(nilaiPH, 2);
-  Serial.print("  Status Pompa Air   : "); Serial.println(statusPompa);
-  Serial.print("  Status Servo Pakan : "); Serial.println(statusPakan);
-  Serial.print("  Waktu Jam RTC      : "); Serial.println(waktuRTC);
-  Serial.println("-------------------------------------------");
+  Serial.println("\n--- [DATA DARI NANO] ---");
+  Serial.print("pH: ");
+  Serial.println(nilaiPH, 2);
+  Serial.print("Pompa: ");
+  Serial.println(statusPompa);
+  Serial.print("Pakan: ");
+  Serial.println(statusPakan);
+  Serial.print("Jam RTC: ");
+  Serial.println(waktuRTC);
+  Serial.println("------------------------");
 }
 
 void bacaSerialNano() {
@@ -133,8 +147,7 @@ void bacaSerialNano() {
       prosesDataNano(bufferNano);
       bufferNano = "";
     } else if (c != '\r') {
-      // Cegah buffer overflow jika komunikasi serial mengalami desinkronisasi
-      if (bufferNano.length() < 128) {
+      if (bufferNano.length() < 120) {
         bufferNano += c;
       } else {
         bufferNano = "";
@@ -144,50 +157,52 @@ void bacaSerialNano() {
 }
 
 // ==============================================================================
-// SERIALISASI JSON TELEMETRI UNTUK BACKEND
+// 8. PEMBENTUKAN JSON TELEMETRI UNTUK BACKEND
 // ==============================================================================
 
-String bangunPayloadTelemetri() {
-  // Normalisasi status pompa ke format backend ('on' atau 'off')
-  String statePompa = "off";
+String buatJSON() {
+  // Petakan status pompa ke standar backend ('on' atau 'off')
+  String pumpState = "off";
   if (statusPompa.equalsIgnoreCase("ON") ||
       statusPompa.equalsIgnoreCase("HIDUP") ||
       statusPompa.equalsIgnoreCase("RUNNING")) {
-    statePompa = "on";
+    pumpState = "on";
   }
 
-  // Normalisasi status pakan ke format backend ('running' atau 'idle')
-  String statePakan = "idle";
+  // Petakan status servo pakan ke standar backend ('running' atau 'idle')
+  String servoState = "idle";
   if (statusPakan.equalsIgnoreCase("FEEDING") ||
       statusPakan.equalsIgnoreCase("RUNNING") ||
       statusPakan.equalsIgnoreCase("ON")) {
-    statePakan = "running";
+    servoState = "running";
   }
 
   String json = "{";
-  json += "\"deviceId\":\"" + String(DEVICE_ID) + "\",";
-  json += "\"ph\":" + String(nilaiPH, 2) + ",";
-  json += "\"pump_status\":\"" + statePompa + "\",";
-  json += "\"servo_status\":\"" + statePakan + "\",";
-  json += "\"waktu\":\"" + waktuRTC + "\",";
-  json += "\"online\":true";
-  json += "}";
+  json += "\"ph\":";
+  json += String(nilaiPH, 2);
+  json += ",\"pump_status\":\"";
+  json += pumpState;
+  json += "\",\"servo_status\":\"";
+  json += servoState;
+  json += "\",\"waktu\":\"";
+  json += waktuRTC;
+  json += "\"}";
 
   return json;
 }
 
 // ==============================================================================
-// PENYUSUNAN HEADER HTTP STANDAR
+// 9. HEADER OTENTIKASI HTTP (X-Device-Id & X-Device-Key)
 // ==============================================================================
 
-void pasangHeaderHTTP(HTTPClient &http) {
+void tambahHeader(HTTPClient &http) {
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Id", DEVICE_ID);
-  http.addHeader("X-Device-Key", DEVICE_KEY);
+  http.addHeader("X-Device-Id", deviceId);
+  http.addHeader("X-Device-Key", deviceKey);
 }
 
 // ==============================================================================
-// PENGIRIMAN TELEMETRI SENSOR KE WEB API
+// 10. MENGIRIM DATA TELEMETRI KE WEBSITE
 // ==============================================================================
 
 void kirimDataWebsite() {
@@ -195,32 +210,26 @@ void kirimDataWebsite() {
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
-  client.setInsecure(); // Mengabaikan verifikasi CA SSL pada mikrokontroler
+  client.setInsecure(); // Mengabaikan verifikasi CA SSL pada ESP32
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(5000);
 
-  String url = String(SERVER_URL) + pathTelemetry;
+  String url = String(serverUrl) + endpointTelemetry;
 
   if (http.begin(client, url)) {
-    pasangHeaderHTTP(http);
+    tambahHeader(http);
 
-    String payload = bangunPayloadTelemetri();
-    int httpCode = http.POST(payload);
+    String payload = buatJSON();
+    int kode = http.POST(payload);
 
-    Serial.print("[API Telemetri] Mengirim data pH ");
-    Serial.print(nilaiPH, 2);
-    Serial.print(" -> Status: ");
+    Serial.print("[API] Kirim Telemetri (HTTP ");
+    Serial.print(kode);
+    Serial.println(")");
 
-    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
-      Serial.println("BERHASIL (HTTP 200)");
-    } else if (httpCode == 401) {
-      Serial.println("GAGAL: 401 Unauthorized (Periksa DEVICE_KEY / DEVICE_ID)");
-    } else if (httpCode == 429) {
-      Serial.println("GAGAL: 429 Rate Limit (Frekuensi kirim terlalu cepat)");
-    } else {
-      Serial.print("HTTP ");
-      Serial.println(httpCode);
+    if (kode > 0) {
+      Serial.print("[API] Respon: ");
+      Serial.println(http.getString());
     }
 
     http.end();
@@ -228,51 +237,51 @@ void kirimDataWebsite() {
 }
 
 // ==============================================================================
-// PARSER JSON RINGAN (ZERO EXTERNAL LIBRARY DEPENDENCY)
+// 11. PARSER JSON SEDERHANA
 // ==============================================================================
 
-String ekstrakStringJSON(String json, String field) {
+String ambilString(String json, String field) {
   String kunci = "\"" + field + "\"";
-  int posKunci = json.indexOf(kunci);
-  if (posKunci < 0) return "";
+  int posisi = json.indexOf(kunci);
+  if (posisi < 0) return "";
 
-  int posTitikDua = json.indexOf(':', posKunci);
-  if (posTitikDua < 0) return "";
+  int titikDua = json.indexOf(':', posisi);
+  if (titikDua < 0) return "";
 
-  int awalKutip = json.indexOf('"', posTitikDua + 1);
-  if (awalKutip < 0) return "";
+  int awal = json.indexOf('"', titikDua + 1);
+  if (awal < 0) return "";
 
-  int akhirKutip = json.indexOf('"', awalKutip + 1);
-  if (akhirKutip < 0) return "";
+  int akhir = json.indexOf('"', awal + 1);
+  if (akhir < 0) return "";
 
-  return json.substring(awalKutip + 1, akhirKutip);
+  return json.substring(awal + 1, akhir);
 }
 
-bool ekstrakAngkaJSON(String json, String field, int &hasil) {
+bool ambilAngka(String json, String field, int &hasil) {
   String kunci = "\"" + field + "\"";
-  int posKunci = json.indexOf(kunci);
-  if (posKunci < 0) return false;
+  int posisi = json.indexOf(kunci);
+  if (posisi < 0) return false;
 
-  int posTitikDua = json.indexOf(':', posKunci);
-  if (posTitikDua < 0) return false;
+  int titikDua = json.indexOf(':', posisi);
+  if (titikDua < 0) return false;
 
-  int idxAwal = posTitikDua + 1;
-  while (idxAwal < json.length() && (json[idxAwal] == ' ' || json[idxAwal] == '\t')) {
-    idxAwal++;
+  int awal = titikDua + 1;
+  while (awal < json.length() && (json[awal] == ' ' || json[awal] == '\t')) {
+    awal++;
   }
 
-  int idxAkhir = idxAwal;
-  while (idxAkhir < json.length() && (json[idxAkhir] == '-' || (json[idxAkhir] >= '0' && json[idxAkhir] <= '9'))) {
-    idxAkhir++;
+  int akhir = awal;
+  while (akhir < json.length() && (json[akhir] == '-' || (json[akhir] >= '0' && json[akhir] <= '9'))) {
+    akhir++;
   }
 
-  if (idxAkhir == idxAwal) return false;
-  hasil = json.substring(idxAwal, idxAkhir).toInt();
+  if (akhir == awal) return false;
+  hasil = json.substring(awal, akhir).toInt();
   return true;
 }
 
 // ==============================================================================
-// MELAPORKAN HASIL EKSEKUSI PERINTAH KE WEB API
+// 12. MELAPORKAN HASIL EKSEKUSI PERINTAH KE SERVER
 // ==============================================================================
 
 void laporHasilPerintah(String commandId, String status) {
@@ -283,29 +292,28 @@ void laporHasilPerintah(String commandId, String status) {
   client.setInsecure();
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(5000);
 
-  String url = String(SERVER_URL) + "/api/v1/device/commands/" + commandId + "/result";
+  String url = String(serverUrl) + "/api/v1/device/commands/" + commandId + "/result";
 
   if (http.begin(client, url)) {
-    pasangHeaderHTTP(http);
+    tambahHeader(http);
 
     String body = "{\"status\":\"" + status + "\"}";
-    int httpCode = http.POST(body);
+    int kode = http.POST(body);
 
-    Serial.print("[API Lapor] Perintah [");
+    Serial.print("[API] Lapor Hasil Perintah ");
     Serial.print(commandId);
-    Serial.print("] Status: ");
-    Serial.print(status);
-    Serial.print(" -> Respons: HTTP ");
-    Serial.println(httpCode);
+    Serial.print(" (HTTP ");
+    Serial.print(kode);
+    Serial.println(")");
 
     http.end();
   }
 }
 
 // ==============================================================================
-// POLLING & EKSEKUSI PERINTAH DARI WEB
+// 13. MENGAMBIL PERINTAH DARI WEBSITE (POLLING)
 // ==============================================================================
 
 void ambilPerintahWebsite() {
@@ -316,139 +324,134 @@ void ambilPerintahWebsite() {
   client.setInsecure();
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(5000);
 
-  String url = String(SERVER_URL) + pathCommands;
+  String url = String(serverUrl) + endpointCommands;
 
   if (!http.begin(client, url)) return;
 
-  pasangHeaderHTTP(http);
-  int httpCode = http.GET();
+  tambahHeader(http);
 
-  if (httpCode == HTTP_CODE_OK) {
+  int kode = http.GET();
+
+  if (kode == HTTP_CODE_OK) {
     String json = http.getString();
 
-    // Jika antrean kosong ("command": null), akhiri
+    // Jika antrean kosong (command == null), abaikan
     if (json.indexOf("\"command\":null") >= 0 || json.indexOf("\"command\": null") >= 0) {
       http.end();
       return;
     }
 
-    String idCmd = ekstrakStringJSON(json, "id");
-    String tipeCmd = ekstrakStringJSON(json, "type");
+    String id = ambilString(json, "id");
+    String type = ambilString(json, "type");
 
-    if (idCmd.length() > 0 && idCmd != perintahTerakhirDieksekusi) {
-      Serial.println("\n[API Perintah] PERINTAH BARU DITERIMA!");
-      Serial.print("[API Perintah] ID    : "); Serial.println(idCmd);
-      Serial.print("[API Perintah] Tipe  : "); Serial.println(tipeCmd);
+    if (id.length() > 0 && id != perintahTerakhir) {
+      Serial.println("\n[API] PERINTAH DITERIMA!");
+      Serial.print("[API] ID: ");
+      Serial.println(id);
+      Serial.print("[API] Tipe: ");
+      Serial.println(type);
 
-      if (tipeCmd == "feed") {
-        // Kontrol Motor Servo Pakan Ikan
+      if (type == "feed") {
+        // Beri pakan ikan (Servo)
         kirimPerintahNano("CMD:PAKAN");
-        perintahTerakhirDieksekusi = idCmd;
-        laporHasilPerintah(idCmd, "completed");
+        perintahTerakhir = id;
+        laporHasilPerintah(id, "completed");
       }
-      else if (tipeCmd == "pump") {
-        // Kontrol Saklar Pompa Air
+      else if (type == "pump") {
+        // Kontrol pompa air (Relay)
         kirimPerintahNano("CMD:AIR");
-        perintahTerakhirDieksekusi = idCmd;
-        laporHasilPerintah(idCmd, "completed");
+        perintahTerakhir = id;
+        laporHasilPerintah(id, "completed");
       }
-      else if (tipeCmd == "settime") {
-        // Sinkronisasi Waktu Jam RTC
+      else if (type == "settime") {
+        // Sinkronisasi RTC
         int tahun, bulan, tanggal;
         int jam, menit, detik;
 
-        bool dataLengkap =
-          ekstrakAngkaJSON(json, "year", tahun) &&
-          ekstrakAngkaJSON(json, "month", bulan) &&
-          ekstrakAngkaJSON(json, "day", tanggal) &&
-          ekstrakAngkaJSON(json, "hour", jam) &&
-          ekstrakAngkaJSON(json, "minute", menit) &&
-          ekstrakAngkaJSON(json, "second", detik);
+        bool lengkap =
+          ambilAngka(json, "year", tahun) &&
+          ambilAngka(json, "month", bulan) &&
+          ambilAngka(json, "day", tanggal) &&
+          ambilAngka(json, "hour", jam) &&
+          ambilAngka(json, "minute", menit) &&
+          ambilAngka(json, "second", detik);
 
-        if (dataLengkap) {
-          char paketWaktu[80];
+        if (lengkap) {
+          char perintah[80];
           snprintf(
-            paketWaktu,
-            sizeof(paketWaktu),
+            perintah,
+            sizeof(perintah),
             "CMD:SETTIME,%d,%d,%d,%d,%d,%d",
             tahun, bulan, tanggal, jam, menit, detik
           );
-          kirimPerintahNano(String(paketWaktu));
-          perintahTerakhirDieksekusi = idCmd;
-          laporHasilPerintah(idCmd, "completed");
+          kirimPerintahNano(String(perintah));
+          perintahTerakhir = id;
+          laporHasilPerintah(id, "completed");
         }
-      } else {
-        Serial.print("[API Perintah] Tipe perintah tidak dikenali: ");
-        Serial.println(tipeCmd);
-        laporHasilPerintah(idCmd, "failed");
       }
     }
-  } else if (httpCode != 204 && httpCode != HTTP_CODE_OK) {
-    Serial.print("[API Perintah] Respons HTTP Polling: ");
-    Serial.println(httpCode);
+  } else if (kode != 204 && kode != HTTP_CODE_OK) {
+    Serial.print("[API] Polling Perintah HTTP: ");
+    Serial.println(kode);
   }
 
   http.end();
 }
 
 // ==============================================================================
-// SETUP SISTEM
+// 14. SETUP
 // ==============================================================================
 
 void setup() {
-  Serial.begin(BAUDRATE_SERIAL);
+  Serial.begin(115200);
 
-  // Inisialisasi komunikasi serial UART2 ke Arduino Nano
+  // Serial komunikasi hardware UART2 ke Arduino Nano
   Serial2.begin(
-    BAUDRATE_NANO,
+    9600,
     SERIAL_8N1,
-    PIN_RX_ESP32,
-    PIN_TX_ESP32
+    RX_ESP32,
+    TX_ESP32
   );
 
   delay(1000);
 
-  Serial.println("\n========================================================");
-  Serial.println("  SISTEM OTOMASI PAKAN IKAN & MONITORING pH KOLAM      ");
-  Serial.println("             FIRMWARE ESP32 CAPSTONE                    ");
-  Serial.println("========================================================");
-  Serial.print("  Device ID   : "); Serial.println(DEVICE_ID);
-  Serial.print("  Server API  : "); Serial.println(SERVER_URL);
-  Serial.println("========================================================");
+  Serial.println("\n==========================================");
+  Serial.println("   SISTEM MONITORING & KONTROL PAKAN IKAN  ");
+  Serial.println("           FIRMWARE ESP32 SIAP            ");
+  Serial.println("==========================================");
 
-  hubungkanWiFi();
+  koneksiWiFi();
 }
 
 // ==============================================================================
-// LOOP UTAMA NON-BLOCKING
+// 15. LOOP UTAMA
 // ==============================================================================
 
 void loop() {
-  // 1. Selalu dengarkan paket serial yang masuk dari Arduino Nano tanpa henti
+  // Selalu baca data dari Arduino Nano
   bacaSerialNano();
 
   unsigned long sekarang = millis();
 
-  // 2. Pemeriksaan konektivitas WiFi secara periodik
-  if (WiFi.status() != WL_CONNECTED && (sekarang - waktuTerakhirCekWiFi >= INTERVAL_CEK_WIFI)) {
-    waktuTerakhirCekWiFi = sekarang;
-    hubungkanWiFi();
+  // 1. Pemeriksaan & rekoneksi otomatis WiFi
+  if (WiFi.status() != WL_CONNECTED && sekarang - waktuWiFi >= intervalWiFi) {
+    waktuWiFi = sekarang;
+    koneksiWiFi();
   }
 
-  // 3. Pengiriman telemetri sensor pH ke website secara periodik
-  if (ENABLE_API && dataValid && (sekarang - waktuTerakhirKirim >= INTERVAL_KIRIM_DATA)) {
-    waktuTerakhirKirim = sekarang;
+  // 2. Pengiriman data telemetri sensor pH ke website
+  if (ENABLE_API && dataValid && sekarang - waktuKirim >= intervalKirim) {
+    waktuKirim = sekarang;
     kirimDataWebsite();
   }
 
-  // 4. Polling antrean perintah dari website (feed / pump) secara periodik
-  if (ENABLE_API && (sekarang - waktuTerakhirPerintah >= INTERVAL_CEK_PERINTAH)) {
-    waktuTerakhirPerintah = sekarang;
+  // 3. Polling perintah aksi dari website (feed / pump)
+  if (ENABLE_API && sekarang - waktuPerintah >= intervalPerintah) {
+    waktuPerintah = sekarang;
     ambilPerintahWebsite();
   }
 
-  // Delay mikro singkat untuk memberikan waktu prosesor mengeksekusi stack background ESP-IDF/WiFi
   delay(5);
 }
