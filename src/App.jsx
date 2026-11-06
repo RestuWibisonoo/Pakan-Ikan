@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { Home, CalendarClock, History as HistoryIcon, Settings, Fish } from 'lucide-react';
+import { Home, CalendarClock, History as HistoryIcon, Settings, Fish, Clock } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import InstallPrompt from './components/InstallPrompt';
@@ -47,6 +47,24 @@ function BottomNavigation() {
 function Header() {
   const { user } = useAuth();
   const [deviceOnline, setDeviceOnline] = useState(false);
+  const [currentTime, setCurrentTime] = useState('');
+
+  // Jam digital live (zona lokal / WIB)
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTime(
+        now.toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -75,13 +93,35 @@ function Header() {
         <Fish color="#38bdf8" />
         <span>Pakan Ikan</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div
+          className="header-clock"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'rgba(56, 189, 248, 0.08)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            padding: '4px 8px',
+            borderRadius: '10px',
+            fontSize: '0.8rem',
+            fontWeight: '600',
+            color: '#38bdf8',
+            fontVariantNumeric: 'tabular-nums',
+            letterSpacing: '0.5px',
+          }}
+          title="Waktu Real-Time Sekarang"
+        >
+          <Clock size={13} />
+          <span>{currentTime || '--:--:--'}</span>
+        </div>
+
         {user?.displayName && (
           <span
             style={{
               fontSize: '0.8rem',
               color: 'var(--text-muted)',
-              maxWidth: '120px',
+              maxWidth: '90px',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',

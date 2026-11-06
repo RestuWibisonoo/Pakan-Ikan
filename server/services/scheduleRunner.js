@@ -47,9 +47,22 @@ export async function checkAndExecuteSchedules() {
       if (schedule.time === currentWib) {
         const triggerKey = `${todayDate}_${currentWib}_${schedule.id}`;
         if (!triggeredMinutes.has(triggerKey)) {
+          // Perlindungan ganda: pastikan belum pernah dieksekusi dalam 60 detik terakhir
+          const recentLogs = await deviceRepository.getActionLogs(defaultId, 5);
+          const alreadyExecutedRecently = recentLogs.some((l) => {
+            if (l.type !== 'feed' || l.action !== 'Auto Feed') return false;
+            const logTime = new Date(l.timestamp).getTime();
+            return Date.now() - logTime < 60000;
+          });
+
+          if (alreadyExecutedRecently) {
+            triggeredMinutes.add(triggerKey);
+            continue;
+          }
+
           triggeredMinutes.add(triggerKey);
           console.log(
-            `[ScheduleRunner] Waktu cocok (${currentWib} WIB). Menjalankan jadwal pakan otomatis: "${schedule.label || 'Pakan'}"`
+            `[ScheduleRunner] Waktu cocok (${currentWib} WIB). Menjalankan jadwal pakan otomatis (1x): "${schedule.label || 'Pakan'}"`
           );
 
           await iotService.triggerFeedCommand(defaultId, {
@@ -90,3 +103,4 @@ export default {
   startScheduleRunner,
   stopScheduleRunner,
 };
+
