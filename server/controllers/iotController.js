@@ -46,7 +46,14 @@ export async function getVerifiedDeviceId(req) {
 
   const requestedDeviceId = String(candidates[0] || config.device.defaultDeviceId).trim();
 
-  // Verifikasi kepemilikan perangkat untuk mencegah serangan BOLA / IDOR
+  // Mode Single-Device / Uji Coba:
+  // Perangkat default sistem (fish-feeder-001) langsung dapat diakses & dimonitor
+  // oleh setiap pengguna yang login tanpa hambatan kepemilikan perangkat.
+  if (requestedDeviceId === config.device.defaultDeviceId) {
+    return requestedDeviceId;
+  }
+
+  // Verifikasi kepemilikan perangkat untuk mencegah serangan BOLA / IDOR pada custom devices
   const ownerUid = await deviceRepository.getDeviceOwner(requestedDeviceId);
   if (!ownerUid) {
     // Klaim otomatis untuk perangkat pertama yang dihubungkan pengguna
@@ -287,6 +294,13 @@ export async function postDeviceTelemetry(req, res, next) {
 export async function getPendingCommand(req, res, next) {
   try {
     const deviceId = req.device.id;
+
+    // Perbarui status online dan last_seen saat ESP32 melakukan heartbeat / polling perintah
+    await deviceRepository.updateStatus(deviceId, {
+      online: true,
+      last_seen: new Date().toISOString(),
+    });
+
     const command = await deviceRepository.getLatestPendingCommand(deviceId);
     return res.status(200).json({
       success: true,

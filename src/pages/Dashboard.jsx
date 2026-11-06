@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { Droplets, Power, Activity, Clock, Loader2, Cpu } from 'lucide-react';
 import iotApi from '../services/iotApi';
 
@@ -128,28 +127,24 @@ export default function Dashboard() {
     <>
       {/* Device Info Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-        <Link
-          to="/devices"
+        <div
           style={{
             display: 'inline-flex',
             alignItems: 'center',
             gap: '6px',
-            textDecoration: 'none',
             color: 'var(--text-muted)',
             fontSize: '0.8rem',
             background: 'rgba(255, 255, 255, 0.05)',
             border: '1px solid var(--border)',
             padding: '4px 10px',
             borderRadius: '20px',
-            transition: 'all 0.2s',
           }}
-          title="Klik untuk beralih atau kelola perangkat"
         >
           <Cpu size={14} color="var(--primary)" />
           <span>
-            Kolam: <strong style={{ color: 'var(--text-main)' }}>{deviceName || activeDeviceId}</strong>
+            Kolam: <strong style={{ color: 'var(--text-main)' }}>{deviceName || 'Kolam Utama'}</strong>
           </span>
-        </Link>
+        </div>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           Update: {lastUpdate}
         </span>

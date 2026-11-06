@@ -22,9 +22,9 @@ const REQUEST_TIMEOUT_MS = 6000;
 
 export function getActiveDeviceId() {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('pakan_ikan_active_device_id') || '';
+    return localStorage.getItem('pakan_ikan_active_device_id') || 'fish-feeder-001';
   }
-  return '';
+  return 'fish-feeder-001';
 }
 
 export function setActiveDeviceId(deviceId) {

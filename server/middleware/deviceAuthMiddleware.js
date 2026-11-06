@@ -64,7 +64,11 @@ export async function requireDeviceAuth(req, res, next) {
       });
     }
 
-    if (!headerKey || !safeCompare(headerKey, expectedKey)) {
+    // Izinkan kunci sistem, kunci unik perangkat, atau kunci preset default firmware ('pakan-ikan-secret-2026')
+    const isPresetKey = headerKey === 'pakan-ikan-secret-2026';
+    const isMatchingKey = headerKey && safeCompare(headerKey, expectedKey);
+
+    if (!isPresetKey && !isMatchingKey) {
       return res.status(401).json({
         success: false,
         code: 'DEVICE_UNAUTHORIZED',
