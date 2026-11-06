@@ -43,7 +43,19 @@ export async function requireDeviceAuth(req, res, next) {
 
     const cleanDeviceId = String(deviceId).trim();
 
-    // 1. Cek secret unik per perangkat jika terdaftar di repository
+    // 1. Fast Path: Langsung izinkan kunci preset firmware atau kunci sistem yang cocok
+    const isPresetKey = headerKey === 'pakan-ikan-secret-2026';
+    const isSystemKey = Boolean(config.device.apiKey && safeCompare(headerKey, config.device.apiKey));
+
+    if (isPresetKey || isSystemKey) {
+      req.device = {
+        id: cleanDeviceId,
+        authenticated: true,
+      };
+      return next();
+    }
+
+    // 2. Jika bukan kunci preset/sistem, cek rahasia unik per-perangkat dari repository
     let expectedKey = null;
     try {
       expectedKey = await deviceRepository.getDeviceSecret(cleanDeviceId);
@@ -64,11 +76,9 @@ export async function requireDeviceAuth(req, res, next) {
       });
     }
 
-    // Izinkan kunci sistem, kunci unik perangkat, atau kunci preset default firmware ('pakan-ikan-secret-2026')
-    const isPresetKey = headerKey === 'pakan-ikan-secret-2026';
     const isMatchingKey = headerKey && safeCompare(headerKey, expectedKey);
 
-    if (!isPresetKey && !isMatchingKey) {
+    if (!isMatchingKey) {
       return res.status(401).json({
         success: false,
         code: 'DEVICE_UNAUTHORIZED',

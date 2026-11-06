@@ -17,6 +17,7 @@ dist-ssr
 
 # Server and credentials
 server/node_modules
+server/data/
 server/.env
 server/.env.*
 !server/.env.example

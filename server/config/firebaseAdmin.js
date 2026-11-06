@@ -92,6 +92,36 @@ export const getAdminDatabase = () => {
 export const hasAdminCredentials = () => hasServiceAccount;
 export const hasDatabaseAccess = () => hasServiceAccount && Boolean(config.firebase.databaseUrl);
 
+let rtdbConnected = false;
+let rtdbListenerStarted = false;
+
+export function initRealtimeDatabaseListener() {
+  if (rtdbListenerStarted) return;
+  if (!hasDatabaseAccess()) return;
+  const db = getAdminDatabase();
+  if (db) {
+    rtdbListenerStarted = true;
+    try {
+      db.ref('.info/connected').on('value', (snap) => {
+        const val = Boolean(snap && snap.val() === true);
+        if (val !== rtdbConnected) {
+          rtdbConnected = val;
+          console.log(`[Firebase RTDB] Status koneksi live berubah: ${rtdbConnected ? 'TERHUBUNG' : 'TERPUTUS'}`);
+        }
+      });
+    } catch (err) {
+      console.warn('[Firebase RTDB] Gagal memasang listener .info/connected:', err.message);
+    }
+  }
+}
+
+export function isRealtimeDatabaseLive() {
+  return rtdbConnected;
+}
+
+// Inisialisasi listener RTDB jika database terkonfigurasi
+initRealtimeDatabaseListener();
+
 /**
  * Memeriksa konektivitas live ke Firebase Realtime Database secara read-only.
  * Menggunakan path metadata sistem '.info/connected' dengan batas waktu (timeout).

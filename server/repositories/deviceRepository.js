@@ -1,16 +1,24 @@
-import { getAdminDatabase, hasDatabaseAccess } from '../config/firebaseAdmin.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getAdminDatabase, hasDatabaseAccess, isRealtimeDatabaseLive } from '../config/firebaseAdmin.js';
 import config from '../config/appConfig.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = path.resolve(__dirname, '../data');
+const DATA_FILE = path.join(DATA_DIR, 'local_device_store.json');
+
 /**
- * Penyimpanan Data In-Memory Fallback
- * HANYA diperbolehkan di lingkungan testing atau development lokal.
- * Di lingkungan produksi, kegagalan database live akan mengembalikan error 503.
+ * Penyimpanan Data In-Memory & File Fallback
+ * Berfungsi sebagai penampung lokal berkinerja tinggi saat RTDB offline/tidak tersedia,
+ * mencegah proses Express mengalami hanging/timeout (menghilangkan error ESP32 HTTP -11).
  */
 const mockStore = {
   devices: {
     'fish-feeder-001': {
       meta: {
-        owner_uid: null, // Dinamis diisi oleh pengguna pertama yang mengklaim
+        owner_uid: null,
       },
       status: {
         online: false,
@@ -40,6 +48,38 @@ const mockStore = {
   },
 };
 
+function loadLocalStore() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const content = fs.readFileSync(DATA_FILE, 'utf8');
+      const parsed = JSON.parse(content);
+      if (parsed && parsed.devices) {
+        Object.assign(mockStore.devices, parsed.devices);
+      }
+    }
+  } catch (err) {
+    console.warn('[DeviceRepository] Gagal membaca penyimpanan lokal:', err.message);
+  }
+}
+
+let saveTimer = null;
+function persistLocalStore() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DATA_FILE, JSON.stringify(mockStore, null, 2), 'utf8');
+    } catch (err) {
+      console.warn('[DeviceRepository] Gagal menyimpan data lokal ke disk:', err.message);
+    }
+  }, 100);
+}
+
+loadLocalStore();
+
 function getOrCreateMockDevice(deviceId) {
   if (!mockStore.devices[deviceId]) {
     mockStore.devices[deviceId] = {
@@ -65,6 +105,22 @@ function getOrCreateMockDevice(deviceId) {
     };
   }
   return mockStore.devices[deviceId];
+}
+
+/**
+ * Pembungkus batas waktu (timeout) untuk operasi Firebase RTDB.
+ * Mencegah Promise Firebase SDK menggantung tanpa batas jika koneksi soket terputus.
+ */
+function withTimeout(promise, ms = 1500, errorMsg = 'Permintaan RTDB melebihi batas waktu') {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${errorMsg} (${ms}ms)`);
+      err.code = 'TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
 class DeviceRepository {
@@ -110,11 +166,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/meta/owner_uid`).once('value');
+          const snapshot = await withTimeout(db.ref(`devices/${id}/meta/owner_uid`).once('value'), 1500);
           if (snapshot.exists()) {
             return snapshot.val();
           }
@@ -135,11 +191,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/meta/owner_uid`).set(ownerUid);
+          await withTimeout(db.ref(`devices/${id}/meta/owner_uid`).set(ownerUid), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menyimpan owner_uid', err);
@@ -149,6 +205,7 @@ class DeviceRepository {
     const dev = getOrCreateMockDevice(id);
     dev.meta = dev.meta || {};
     dev.meta.owner_uid = ownerUid;
+    persistLocalStore();
     return ownerUid;
   }
 
@@ -159,11 +216,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/meta/device_key`).once('value');
+          const snapshot = await withTimeout(db.ref(`devices/${id}/meta/device_key`).once('value'), 1500);
           if (snapshot.exists()) {
             return snapshot.val();
           }
@@ -184,11 +241,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/meta/device_key`).set(secretKey);
+          await withTimeout(db.ref(`devices/${id}/meta/device_key`).set(secretKey), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menyimpan device_key', err);
@@ -198,6 +255,7 @@ class DeviceRepository {
     const dev = getOrCreateMockDevice(id);
     dev.meta = dev.meta || {};
     dev.meta.device_key = secretKey;
+    persistLocalStore();
     return secretKey;
   }
 
@@ -208,11 +266,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/status`).once('value');
+          const snapshot = await withTimeout(db.ref(`devices/${id}/status`).once('value'), 1500);
           if (snapshot.exists()) {
             return snapshot.val();
           }
@@ -237,11 +295,11 @@ class DeviceRepository {
       last_seen: patch.last_seen || new Date().toISOString(),
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/status`).update(updated);
+          await withTimeout(db.ref(`devices/${id}/status`).update(updated), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('update status', err);
@@ -250,6 +308,7 @@ class DeviceRepository {
 
     const dev = getOrCreateMockDevice(id);
     dev.status = { ...dev.status, ...updated };
+    persistLocalStore();
     return dev.status;
   }
 
@@ -260,11 +319,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/settings`).once('value');
+          const snapshot = await withTimeout(db.ref(`devices/${id}/settings`).once('value'), 1500);
           if (snapshot.exists()) {
             return snapshot.val();
           }
@@ -285,11 +344,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/settings`).update(newSettings);
+          await withTimeout(db.ref(`devices/${id}/settings`).update(newSettings), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menyimpan settings', err);
@@ -298,6 +357,7 @@ class DeviceRepository {
 
     const dev = getOrCreateMockDevice(id);
     dev.settings = { ...dev.settings, ...newSettings };
+    persistLocalStore();
     return dev.settings;
   }
 
@@ -308,11 +368,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db.ref(`devices/${id}/schedules`).once('value');
+          const snapshot = await withTimeout(db.ref(`devices/${id}/schedules`).once('value'), 1500);
           if (snapshot.exists()) {
             const val = snapshot.val();
             return Object.values(val || {});
@@ -341,11 +401,11 @@ class DeviceRepository {
       updated_at: new Date().toISOString(),
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/schedules/${scheduleId}`).set(scheduleData);
+          await withTimeout(db.ref(`devices/${id}/schedules/${scheduleId}`).set(scheduleData), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menyimpan jadwal', err);
@@ -355,6 +415,7 @@ class DeviceRepository {
     const dev = getOrCreateMockDevice(id);
     dev.schedules = dev.schedules || {};
     dev.schedules[scheduleId] = scheduleData;
+    persistLocalStore();
     return scheduleData;
   }
 
@@ -365,11 +426,11 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/schedules/${scheduleId}`).remove();
+          await withTimeout(db.ref(`devices/${id}/schedules/${scheduleId}`).remove(), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menghapus jadwal', err);
@@ -380,6 +441,7 @@ class DeviceRepository {
     dev.schedules = dev.schedules || {};
     const existed = Boolean(dev.schedules[scheduleId]);
     delete dev.schedules[scheduleId];
+    persistLocalStore();
     return existed;
   }
 
@@ -398,11 +460,11 @@ class DeviceRepository {
       created_at: command.created_at || new Date().toISOString(),
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/commands/queue/${cmdId}`).set(commandData);
+          await withTimeout(db.ref(`devices/${id}/commands/queue/${cmdId}`).set(commandData), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('menyimpan command queue', err);
@@ -413,6 +475,7 @@ class DeviceRepository {
     dev.commands = dev.commands || { queue: {}, history: {} };
     dev.commands.queue = dev.commands.queue || {};
     dev.commands.queue[cmdId] = commandData;
+    persistLocalStore();
     return commandData;
   }
 
@@ -426,16 +489,16 @@ class DeviceRepository {
     const now = Date.now();
     const COMMAND_EXPIRATION_MS = 180000; // 3 menit timeout kedaluwarsa
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db
-            .ref(`devices/${id}/commands/queue`)
-            .orderByChild('created_at')
-            .once('value');
+          const snapshot = await withTimeout(
+            db.ref(`devices/${id}/commands/queue`).orderByChild('created_at').once('value'),
+            1500
+          );
 
-          if (snapshot.exists()) {
+          if (snapshot && snapshot.exists()) {
             let activeCommand = null;
             const updates = {};
 
@@ -458,7 +521,7 @@ class DeviceRepository {
             });
 
             if (Object.keys(updates).length > 0) {
-              await db.ref().update(updates);
+              await withTimeout(db.ref().update(updates), 1500);
             }
 
             return activeCommand;
@@ -497,6 +560,7 @@ class DeviceRepository {
       }
     }
 
+    persistLocalStore();
     return activeCommand;
   }
 
@@ -518,11 +582,11 @@ class DeviceRepository {
         message: result.message || `Perintah sedang diproses (${status}).`,
       };
 
-      if (hasDatabaseAccess()) {
+      if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
         try {
           const db = getAdminDatabase();
           if (db) {
-            await db.ref(`devices/${id}/commands/queue/${commandId}`).update(interimData);
+            await withTimeout(db.ref(`devices/${id}/commands/queue/${commandId}`).update(interimData), 1500);
           }
         } catch (err) {
           this.handleDatabaseError('update interim command', err);
@@ -534,6 +598,7 @@ class DeviceRepository {
         Object.assign(dev.commands.queue[commandId], interimData);
       }
 
+      persistLocalStore();
       await this.updateActionLogStatusByCommandId(id, commandId, status);
       return { id: commandId, ...interimData };
     }
@@ -547,12 +612,12 @@ class DeviceRepository {
       finished_at: nowIso,
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/commands/queue/${commandId}`).remove();
-          await db.ref(`devices/${id}/commands/history/${commandId}`).set(resultData);
+          await withTimeout(db.ref(`devices/${id}/commands/queue/${commandId}`).remove(), 1500);
+          await withTimeout(db.ref(`devices/${id}/commands/history/${commandId}`).set(resultData), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('update command result', err);
@@ -566,6 +631,7 @@ class DeviceRepository {
     }
     dev.commands.history = dev.commands.history || {};
     dev.commands.history[commandId] = resultData;
+    persistLocalStore();
 
     // Sinkronkan status pada riwayat aksi pengguna!
     await this.updateActionLogStatusByCommandId(
@@ -583,22 +649,21 @@ class DeviceRepository {
   async updateActionLogStatusByCommandId(deviceId, commandId, newStatus) {
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db
-            .ref(`devices/${id}/logs/action_logs`)
-            .orderByChild('command_id')
-            .equalTo(commandId)
-            .once('value');
+          const snapshot = await withTimeout(
+            db.ref(`devices/${id}/logs/action_logs`).orderByChild('command_id').equalTo(commandId).once('value'),
+            1500
+          );
 
-          if (snapshot.exists()) {
+          if (snapshot && snapshot.exists()) {
             const updates = {};
             snapshot.forEach((child) => {
               updates[`devices/${id}/logs/action_logs/${child.key}/status`] = newStatus;
             });
-            await db.ref().update(updates);
+            await withTimeout(db.ref().update(updates), 1500);
           }
         }
       } catch (err) {
@@ -613,6 +678,7 @@ class DeviceRepository {
           log.status = newStatus;
         }
       }
+      persistLocalStore();
     }
   }
 
@@ -630,11 +696,11 @@ class DeviceRepository {
       timestamp: logEntry.timestamp || new Date().toISOString(),
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/logs/ph_logs/${logId}`).set(data);
+          await withTimeout(db.ref(`devices/${id}/logs/ph_logs/${logId}`).set(data), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('simpan log pH', err);
@@ -645,6 +711,7 @@ class DeviceRepository {
     dev.logs = dev.logs || { ph_logs: [], action_logs: [] };
     dev.logs.ph_logs.unshift(data);
     if (dev.logs.ph_logs.length > 200) dev.logs.ph_logs.pop();
+    persistLocalStore();
     return data;
   }
 
@@ -655,15 +722,15 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db
-            .ref(`devices/${id}/logs/ph_logs`)
-            .limitToLast(limit)
-            .once('value');
-          if (snapshot.exists()) {
+          const snapshot = await withTimeout(
+            db.ref(`devices/${id}/logs/ph_logs`).limitToLast(limit).once('value'),
+            1500
+          );
+          if (snapshot && snapshot.exists()) {
             const val = snapshot.val();
             return Object.values(val || {}).reverse();
           }
@@ -694,11 +761,11 @@ class DeviceRepository {
       timestamp: logEntry.timestamp || new Date().toISOString(),
     };
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/logs/action_logs/${logId}`).set(data);
+          await withTimeout(db.ref(`devices/${id}/logs/action_logs/${logId}`).set(data), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('simpan log aksi', err);
@@ -709,6 +776,7 @@ class DeviceRepository {
     dev.logs = dev.logs || { ph_logs: [], action_logs: [] };
     dev.logs.action_logs.unshift(data);
     if (dev.logs.action_logs.length > 200) dev.logs.action_logs.pop();
+    persistLocalStore();
     return data;
   }
 
@@ -719,15 +787,15 @@ class DeviceRepository {
     this.assertDatabaseAvailable();
     const id = this.getEffectiveDeviceId(deviceId);
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const snapshot = await db
-            .ref(`devices/${id}/logs/action_logs`)
-            .limitToLast(limit)
-            .once('value');
-          if (snapshot.exists()) {
+          const snapshot = await withTimeout(
+            db.ref(`devices/${id}/logs/action_logs`).limitToLast(limit).once('value'),
+            1500
+          );
+          if (snapshot && snapshot.exists()) {
             const val = snapshot.val();
             return Object.values(val || {}).reverse();
           }
@@ -751,21 +819,21 @@ class DeviceRepository {
 
     const defaultId = config.device.defaultDeviceId;
 
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          const userDevsSnap = await db.ref(`user_devices/${ownerUid}`).once('value');
+          const userDevsSnap = await withTimeout(db.ref(`user_devices/${ownerUid}`).once('value'), 1500);
           let claimedIds = [];
 
-          if (userDevsSnap.exists()) {
+          if (userDevsSnap && userDevsSnap.exists()) {
             claimedIds = Object.keys(userDevsSnap.val() || {});
           }
 
           // Jika user belum memiliki daftar perangkat terdaftar, periksa perangkat default
           if (claimedIds.length === 0) {
-            const defaultOwnerSnap = await db.ref(`devices/${defaultId}/meta/owner_uid`).once('value');
-            const defaultOwner = defaultOwnerSnap.exists() ? defaultOwnerSnap.val() : null;
+            const defaultOwnerSnap = await withTimeout(db.ref(`devices/${defaultId}/meta/owner_uid`).once('value'), 1500);
+            const defaultOwner = defaultOwnerSnap && defaultOwnerSnap.exists() ? defaultOwnerSnap.val() : null;
 
             if (!defaultOwner || defaultOwner === ownerUid) {
               await this.setDeviceOwner(defaultId, ownerUid);
@@ -775,8 +843,8 @@ class DeviceRepository {
 
           const result = [];
           for (const dId of claimedIds) {
-            const devSnap = await db.ref(`devices/${dId}`).once('value');
-            const devVal = devSnap.exists() ? devSnap.val() : {};
+            const devSnap = await withTimeout(db.ref(`devices/${dId}`).once('value'), 1500);
+            const devVal = devSnap && devSnap.exists() ? devSnap.val() : {};
             result.push({
               deviceId: dId,
               deviceName: devVal.settings?.device_name || dId,
@@ -835,6 +903,7 @@ class DeviceRepository {
           claimedAt: defDev.meta.claimed_at,
           isDefault: true,
         });
+        persistLocalStore();
       }
     }
 
@@ -902,12 +971,12 @@ class DeviceRepository {
     }
 
     // Reset owner_uid menjadi null
-    if (hasDatabaseAccess()) {
+    if (hasDatabaseAccess() && isRealtimeDatabaseLive()) {
       try {
         const db = getAdminDatabase();
         if (db) {
-          await db.ref(`devices/${id}/meta/owner_uid`).remove();
-          await db.ref(`user_devices/${ownerUid}/${id}`).remove();
+          await withTimeout(db.ref(`devices/${id}/meta/owner_uid`).remove(), 1500);
+          await withTimeout(db.ref(`user_devices/${ownerUid}/${id}`).remove(), 1500);
         }
       } catch (err) {
         this.handleDatabaseError('melepas tautan perangkat', err);
@@ -918,6 +987,7 @@ class DeviceRepository {
     if (dev.meta) {
       dev.meta.owner_uid = null;
     }
+    persistLocalStore();
 
     return true;
   }
