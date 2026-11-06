@@ -50,7 +50,7 @@ export async function checkAndExecuteSchedules() {
           // Perlindungan ganda: pastikan belum pernah dieksekusi dalam 60 detik terakhir
           const recentLogs = await deviceRepository.getActionLogs(defaultId, 5);
           const alreadyExecutedRecently = recentLogs.some((l) => {
-            if (l.type !== 'feed' || l.action !== 'Auto Feed') return false;
+            if (l.type !== 'feed' || !String(l.action).startsWith('Auto Feed')) return false;
             const logTime = new Date(l.timestamp).getTime();
             return Date.now() - logTime < 60000;
           });
@@ -67,6 +67,7 @@ export async function checkAndExecuteSchedules() {
 
           await iotService.triggerFeedCommand(defaultId, {
             source: 'schedule',
+            label: schedule.label || 'Otomatis',
             userEmail: `auto-schedule (${schedule.label || 'Jadwal'})`,
           });
         }

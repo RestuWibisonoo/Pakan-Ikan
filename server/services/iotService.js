@@ -72,9 +72,16 @@ export class IotService {
     });
 
     // Catat log aksi pakan dalam status 'pending' (dimutakhirkan menjadi 'success' setelah konfirmasi ESP32)
+    const actionLabel =
+      source === 'manual'
+        ? 'Manual Feed'
+        : options.label
+        ? `Auto Feed (${options.label})`
+        : 'Auto Feed';
+
     await deviceRepository.addActionLog(deviceId, {
       type: 'feed',
-      action: source === 'manual' ? 'Manual Feed' : 'Auto Feed',
+      action: actionLabel,
       status: 'pending',
       command_id: command.id,
       timestamp: new Date().toISOString(),
