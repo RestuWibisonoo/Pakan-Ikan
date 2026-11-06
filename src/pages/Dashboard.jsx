@@ -33,7 +33,13 @@ export default function Dashboard() {
           setIsPumpOn(st.pump_status === 'on');
           setLastUpdate(
             st.last_seen
-              ? new Date(st.last_seen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+              ? new Date(st.last_seen)
+                  .toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })
+                  .replace(/\./g, ':') + ' WIB'
               : 'Belum ada data'
           );
         }

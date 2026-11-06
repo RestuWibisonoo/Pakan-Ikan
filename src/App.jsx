@@ -49,17 +49,14 @@ function Header() {
   const [deviceOnline, setDeviceOnline] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
 
-  // Jam digital live (zona lokal / WIB)
+  // Jam digital live dengan jam:menit:detik WIB
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      setCurrentTime(
-        now.toLocaleTimeString('id-ID', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
-      );
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      setCurrentTime(`${h}:${m}:${s} WIB`);
     };
     updateTime();
     const timer = setInterval(updateTime, 1000);

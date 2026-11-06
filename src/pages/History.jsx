@@ -22,12 +22,15 @@ export default function History() {
           const formattedPh = phRes.data.map((item) => ({
             id: item.id,
             time: item.timestamp
-              ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  day: 'numeric',
-                  month: 'short',
-                })
+              ? new Date(item.timestamp)
+                  .toLocaleTimeString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })
+                  .replace(/\./g, ':') + ' WIB'
               : 'Baru saja',
             value: item.value,
             status: item.status,
@@ -39,12 +42,15 @@ export default function History() {
           const formattedAction = actionRes.data.map((item) => ({
             id: item.id,
             time: item.timestamp
-              ? new Date(item.timestamp).toLocaleTimeString('id-ID', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  day: 'numeric',
-                  month: 'short',
-                })
+              ? new Date(item.timestamp)
+                  .toLocaleTimeString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })
+                  .replace(/\./g, ':') + ' WIB'
               : 'Baru saja',
             type: item.type,
             action: item.action,
