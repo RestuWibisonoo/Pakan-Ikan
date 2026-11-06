@@ -7,6 +7,7 @@ import iotRoutes from './routes/iotRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { hasAdminCredentials, hasDatabaseAccess, checkRealtimeDatabaseConnectivity } from './config/firebaseAdmin.js';
 import { isSmtpConfigured, verifySmtpConnection } from './config/smtp.js';
+import { startScheduleRunner } from './services/scheduleRunner.js';
 
 const app = express();
 
@@ -167,6 +168,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(config.port, config.host, () => {
     console.log(`[Pakan Ikan Server] Berjalan secara internal di http://${config.host}:${config.port} (${config.nodeEnv})`);
     console.log(`[Pakan Ikan Server] Frontend target URL: ${config.frontendUrl}`);
+    startScheduleRunner();
   });
 }
 
